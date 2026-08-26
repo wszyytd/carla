@@ -17,15 +17,19 @@ from .config import (
     parse_path_cost_config,
 )
 from .progress import ProgressReporter
+from .runtime import CleanupFailure, OwnedActors, SynchronousSession
 
 __all__ = [
     "CameraConfig",
     "ClientConfig",
+    "CleanupFailure",
     "ObservationConfig",
+    "OwnedActors",
     "OutputConfig",
     "PathCostConfig",
     "ProgressReporter",
     "RouteConfig",
+    "SynchronousSession",
     "TargetConfig",
     "TrafficManagerConfig",
     "UavConfig",
