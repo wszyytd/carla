@@ -48,7 +48,18 @@ LANG=C.UTF-8 LC_ALL=C.UTF-8 ./CarlaUnreal.sh -RenderOffScreen -nosound
 cd /mnt/fast18/sunbo/carla
 conda activate carla10
 python -m pip install -r requirements.txt
+python -m pytest -v
 ```
 
-先执行离线测试，再运行后续实现的冒烟入口。真实仿真脚本必须输出即时进度，并在退出时
-只清理由本次运行创建的 Actor。
+保持 CARLA 服务器运行，然后执行只读冒烟测试：
+
+```bash
+python -m src.smoke --config cfg/simulator.yaml
+echo "退出码：$?"
+```
+
+正常输出包括客户端/服务器版本、当前地图、同步模式、车辆、行人、Actor 总数和请求耗时，
+退出码为 `0`。该命令不会切换地图、修改同步模式、推进世界或创建/销毁 Actor。
+
+其他退出码：配置无效为 `2`，CARLA 导入/RPC/版本解析失败为 `3`，客户端与服务器主次
+版本不匹配为 `4`。
