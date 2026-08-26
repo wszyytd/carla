@@ -1,0 +1,17 @@
+experiment:
+  name: qualification
+  frames_per_case: 10
+  warmup_stable_frames: 2
+
+matrix:
+  resolutions:
+    - [640, 360]
+    - [1920, 1080]
+    - [3840, 2160]
+  fov_degrees: [90, 30]
+  distances_metres: [30, 60, 100, 150]
+
+sensors:
+  - rgb
+  - depth
+  - instance_segmentation

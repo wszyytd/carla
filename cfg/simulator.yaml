@@ -1,0 +1,11 @@
+client:
+  host: localhost
+  port: 2000
+  timeout_seconds: 10
+
+world:
+  map: Town10HD_Opt
+  synchronous_mode: true
+  fixed_delta_seconds: 0.05
+
+random_seed: 20260826

@@ -1,0 +1,9 @@
+traffic_manager:
+  port: 8000
+  synchronous_mode: true
+  random_seed: 20260826
+
+actors:
+  background_vehicles: 20
+  walkers: 0
+  safe_vehicles_only: true
