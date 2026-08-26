@@ -1,0 +1,58 @@
+random_seed: 20260826
+
+client:
+  host: localhost
+  port: 2000
+  timeout_seconds: 10.0
+
+world:
+  map: Town10HD_Opt
+  fixed_delta_seconds: 0.05
+
+traffic_manager:
+  port: 8000
+  random_seed: 20260826
+  synchronous_mode: true
+
+route:
+  waypoint_spacing_m: 2.0
+  window_length_m: 120.0
+  min_turn_each_direction_deg: 8.0
+  candidate_rank: 0
+  target_speed_mps: 8.0
+  completion_tolerance_m: 3.0
+  max_cross_track_error_m: 2.0
+  speed_tolerance_fraction: 0.15
+  max_duration_seconds: 40.0
+
+target:
+  blueprint_filter: vehicle.*
+
+camera:
+  width: 1920
+  height: 1080
+  fov_deg: 60.0
+  sensor_tick_seconds: 0.1
+
+uav:
+  altitude_m: 40.0
+  initial_offset_x_m: 0.0
+  initial_offset_y_m: 0.0
+  max_speed_mps: 12.0
+  max_acceleration_mps2: 4.0
+  max_jerk_mps3: 8.0
+  max_gimbal_rate_deg_s: 90.0
+
+observation:
+  edge_margin_fraction: 0.05
+  min_bbox_short_side_px: 32.0
+  max_center_error_fraction: 0.2
+  max_distance_m: 120.0
+  min_instance_pixels: 500
+  min_valid_fraction: 0.995
+  max_continuous_invalid_seconds: 0.2
+
+output:
+  root: out/path_cost
+  warmup_frames: 4
+  sample_every_frames: 10
