@@ -29,5 +29,6 @@ Carla-*/
 
 .idea/
 .vscode/
+.worktrees/
 *.swp
 *~
