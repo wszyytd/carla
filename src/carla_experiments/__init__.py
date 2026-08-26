@@ -1,7 +1,7 @@
 """Reusable components for native CARLA experiments."""
 
-from .config import ClientConfig, load_config, parse_client_config
 from .client import WorldSummary, inspect_world, versions_compatible
+from .config import ClientConfig, load_config, parse_client_config
 from .progress import ProgressReporter
 
 __all__ = [
