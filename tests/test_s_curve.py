@@ -6,6 +6,7 @@ import pytest
 from src.carla_experiments.trajectories.s_curve import (
     RouteCandidate,
     score_lane_windows,
+    score_topology_paths,
     score_waypoint_window,
     select_s_curve_route,
     wrapped_yaw_delta,
@@ -239,3 +240,165 @@ def test_select_s_curve_route_follows_topology_across_road_boundaries() -> None:
     selected = select_s_curve_route(map_obj, config)
 
     assert all(actual is expected for actual, expected in zip(selected.waypoints, chain, strict=True))
+
+
+def test_score_topology_paths_sorts_reverse_successors_with_heterogeneous_ids() -> None:
+    seed = TopologyWaypoint(
+        road_id=0,
+        section_id=0,
+        lane_id=1,
+        s=0.0,
+        transform=Transform(Location(0.0), Rotation(0.0)),
+        id=0,
+        successors=[],
+    )
+
+    def branch(road_id: int, first_id: object) -> list[TopologyWaypoint]:
+        nodes = [
+            TopologyWaypoint(
+                road_id=road_id,
+                section_id=0,
+                lane_id=1,
+                s=float((index + 1) * 2),
+                transform=Transform(Location(float((index + 1) * 2)), Rotation(yaw)),
+                id=first_id if index == 0 else road_id * 10 + index,
+                successors=[],
+            )
+            for index, yaw in enumerate([10.0, 20.0, 10.0, 0.0])
+        ]
+        for waypoint, successor in zip(nodes, nodes[1:], strict=False):
+            waypoint.successors.append(successor)
+        return nodes
+
+    road_one = branch(1, "road-one")
+    road_two = branch(2, 2)
+    seed.successors.extend((road_two[0], road_one[0]))
+
+    candidates = score_topology_paths(
+        (seed,),
+        step_distance_m=2.0,
+        window_length_m=8.0,
+        min_turn_each_direction_deg=8.0,
+    )
+
+    assert [(candidate.score, candidate.waypoints[1].road_id) for candidate in candidates] == [
+        (20.0, 1),
+        (20.0, 2),
+    ]
+
+
+def test_score_topology_paths_rejects_chain_that_enters_junction() -> None:
+    chain = [
+        TopologyWaypoint(
+            road_id=1,
+            section_id=0,
+            lane_id=1,
+            s=float(index * 2),
+            transform=Transform(Location(float(index * 2)), Rotation(yaw)),
+            id=index,
+            successors=[],
+            is_junction=index == 2,
+        )
+        for index, yaw in enumerate([0.0, 10.0, 20.0, 10.0, 0.0])
+    ]
+    for waypoint, successor in zip(chain, chain[1:], strict=False):
+        waypoint.successors.append(successor)
+
+    candidates = score_topology_paths(
+        (chain[0],),
+        step_distance_m=2.0,
+        window_length_m=8.0,
+        min_turn_each_direction_deg=8.0,
+    )
+
+    assert candidates == []
+
+
+def test_score_topology_paths_terminates_on_cycle_without_complete_path() -> None:
+    cycle = [
+        TopologyWaypoint(
+            road_id=1,
+            section_id=0,
+            lane_id=1,
+            s=float(index * 2),
+            transform=Transform(Location(float(index * 2)), Rotation(yaw)),
+            id=index,
+            successors=[],
+        )
+        for index, yaw in enumerate([0.0, 10.0, 20.0])
+    ]
+    for waypoint, successor in zip(cycle, (*cycle[1:], cycle[0]), strict=True):
+        waypoint.successors.append(successor)
+
+    candidates = score_topology_paths(
+        (cycle[0],),
+        step_distance_m=2.0,
+        window_length_m=8.0,
+        min_turn_each_direction_deg=8.0,
+    )
+
+    assert candidates == []
+
+
+def test_score_topology_paths_retains_at_most_64_paths_per_seed() -> None:
+    seed = TopologyWaypoint(
+        road_id=1,
+        section_id=0,
+        lane_id=1,
+        s=0.0,
+        transform=Transform(Location(0.0), Rotation(0.0)),
+        id=0,
+        successors=[],
+    )
+    seed.successors.extend(
+        TopologyWaypoint(
+            road_id=2,
+            section_id=0,
+            lane_id=1,
+            s=float(index),
+            transform=Transform(Location(2.0), Rotation(0.0)),
+            id=index,
+            successors=[],
+        )
+        for index in range(1, 66)
+    )
+
+    candidates = score_topology_paths(
+        (seed,),
+        step_distance_m=2.0,
+        window_length_m=2.0,
+        min_turn_each_direction_deg=0.0,
+    )
+
+    assert len(candidates) == 64
+
+
+def test_score_topology_paths_eliminates_duplicate_path_identities() -> None:
+    def chain() -> list[TopologyWaypoint]:
+        nodes = [
+            TopologyWaypoint(
+                road_id=1,
+                section_id=0,
+                lane_id=1,
+                s=float(index * 2),
+                transform=Transform(Location(float(index * 2)), Rotation(yaw)),
+                id=index,
+                successors=[],
+            )
+            for index, yaw in enumerate([0.0, 10.0, 20.0, 10.0, 0.0])
+        ]
+        for waypoint, successor in zip(nodes, nodes[1:], strict=False):
+            waypoint.successors.append(successor)
+        return nodes
+
+    first = chain()
+    duplicate = chain()
+
+    candidates = score_topology_paths(
+        (first[0], duplicate[0]),
+        step_distance_m=2.0,
+        window_length_m=8.0,
+        min_turn_each_direction_deg=8.0,
+    )
+
+    assert len(candidates) == 1
