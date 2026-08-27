@@ -89,3 +89,44 @@ None.  The existing implementation already:
 ## Commit
 
 Commit message: `test: cover topology path traversal edge cases`.
+
+## Review-fix round 1
+
+The review identified that three original fixtures did not exercise the intended
+traversal behavior.  No production change was needed; `score_topology_paths` already
+has the required guards.
+
+- **Determinism and heterogeneous IDs:** both successor branches now have identical
+  road, section, lane, `s`, coordinate, and yaw metadata.  Their first IDs are the
+  integer `2` and string `"branch-a"`, supplied in the reverse of the expected
+  representation-safe sort order.  The assertion reads the returned second-waypoint
+  IDs directly: `["branch-a", 2]`.  It fails if sorting is removed and raises if a
+  sort key directly compares the unlike raw IDs.
+- **Junction expansion:** the junction node's `next()` raises `AssertionError`.
+  The path is deliberately shorter than the window, so accepting it would force a
+  subsequent topology expansion and raise.  The outcome still asserts no candidate.
+- **Combined retained-path cap:** the seed exposes one immediately completed path and
+  64 one-metre active paths.  Only 63 active paths can coexist with the completed
+  one; each retained active path then reaches two metres and completes.  The observed
+  result is exactly 64 candidates, while removing the combined active-plus-completed
+  cap would yield 65.
+
+Focused verification command and output:
+
+```
+python -m pytest \
+  tests/test_s_curve.py::test_score_topology_paths_sorts_reverse_successors_with_heterogeneous_ids \
+  tests/test_s_curve.py::test_score_topology_paths_rejects_chain_that_enters_junction \
+  tests/test_s_curve.py::test_score_topology_paths_retains_at_most_64_paths_per_seed -q
+3 passed, 1 warning in 0.08s
+```
+
+The warning remains pytest cache-provider permission denial in the worktree and does
+not affect test execution.  Required full focused-suite verification:
+
+```
+python -m pytest tests/test_s_curve.py -q
+11 passed, 1 warning in 0.08s
+```
+
+Fix commit message: `test: strengthen topology traversal edge coverage`.

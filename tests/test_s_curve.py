@@ -56,6 +56,12 @@ class TopologyWaypoint:
         return self.successors
 
 
+@dataclass
+class FailingJunctionTopologyWaypoint(TopologyWaypoint):
+    def next(self, distance: float) -> list["TopologyWaypoint"]:
+        raise AssertionError("topology traversal must not expand a junction")
+
+
 def waypoints(
     yaws: list[float],
     *,
@@ -253,15 +259,15 @@ def test_score_topology_paths_sorts_reverse_successors_with_heterogeneous_ids() 
         successors=[],
     )
 
-    def branch(road_id: int, first_id: object) -> list[TopologyWaypoint]:
+    def branch(ids: tuple[object, ...]) -> list[TopologyWaypoint]:
         nodes = [
             TopologyWaypoint(
-                road_id=road_id,
+                road_id=1,
                 section_id=0,
                 lane_id=1,
                 s=float((index + 1) * 2),
                 transform=Transform(Location(float((index + 1) * 2)), Rotation(yaw)),
-                id=first_id if index == 0 else road_id * 10 + index,
+                id=ids[index],
                 successors=[],
             )
             for index, yaw in enumerate([10.0, 20.0, 10.0, 0.0])
@@ -270,9 +276,9 @@ def test_score_topology_paths_sorts_reverse_successors_with_heterogeneous_ids() 
             waypoint.successors.append(successor)
         return nodes
 
-    road_one = branch(1, "road-one")
-    road_two = branch(2, 2)
-    seed.successors.extend((road_two[0], road_one[0]))
+    string_id_branch = branch(("branch-a", "branch-a-2", "branch-a-3", "branch-a-4"))
+    integer_id_branch = branch((2, 22, 23, 24))
+    seed.successors.extend((integer_id_branch[0], string_id_branch[0]))
 
     candidates = score_topology_paths(
         (seed,),
@@ -281,25 +287,39 @@ def test_score_topology_paths_sorts_reverse_successors_with_heterogeneous_ids() 
         min_turn_each_direction_deg=8.0,
     )
 
-    assert [(candidate.score, candidate.waypoints[1].road_id) for candidate in candidates] == [
-        (20.0, 1),
-        (20.0, 2),
-    ]
+    assert [candidate.waypoints[1].id for candidate in candidates] == ["branch-a", 2]
 
 
 def test_score_topology_paths_rejects_chain_that_enters_junction() -> None:
-    chain = [
+    chain: list[TopologyWaypoint] = [
         TopologyWaypoint(
             road_id=1,
             section_id=0,
             lane_id=1,
-            s=float(index * 2),
-            transform=Transform(Location(float(index * 2)), Rotation(yaw)),
-            id=index,
+            s=0.0,
+            transform=Transform(Location(0.0), Rotation(0.0)),
+            id=0,
             successors=[],
-            is_junction=index == 2,
-        )
-        for index, yaw in enumerate([0.0, 10.0, 20.0, 10.0, 0.0])
+        ),
+        TopologyWaypoint(
+            road_id=1,
+            section_id=0,
+            lane_id=1,
+            s=2.0,
+            transform=Transform(Location(2.0), Rotation(10.0)),
+            id=1,
+            successors=[],
+        ),
+        FailingJunctionTopologyWaypoint(
+            road_id=1,
+            section_id=0,
+            lane_id=1,
+            s=4.0,
+            transform=Transform(Location(4.0), Rotation(20.0)),
+            id=2,
+            successors=[],
+            is_junction=True,
+        ),
     ]
     for waypoint, successor in zip(chain, chain[1:], strict=False):
         waypoint.successors.append(successor)
@@ -350,18 +370,40 @@ def test_score_topology_paths_retains_at_most_64_paths_per_seed() -> None:
         id=0,
         successors=[],
     )
-    seed.successors.extend(
+    completed_path = TopologyWaypoint(
+        road_id=2,
+        section_id=0,
+        lane_id=1,
+        s=0.0,
+        transform=Transform(Location(2.0), Rotation(0.0)),
+        id=100,
+        successors=[],
+    )
+    active_paths = [
         TopologyWaypoint(
             road_id=2,
             section_id=0,
             lane_id=1,
-            s=float(index),
-            transform=Transform(Location(2.0), Rotation(0.0)),
+            s=1.0,
+            transform=Transform(Location(1.0), Rotation(0.0)),
             id=index,
             successors=[],
         )
-        for index in range(1, 66)
-    )
+        for index in range(1, 65)
+    ]
+    for waypoint in active_paths:
+        waypoint.successors.append(
+            TopologyWaypoint(
+                road_id=2,
+                section_id=0,
+                lane_id=1,
+                s=2.0,
+                transform=Transform(Location(2.0), Rotation(0.0)),
+                id=waypoint.id + 100,
+                successors=[],
+            )
+        )
+    seed.successors.extend((completed_path, *active_paths))
 
     candidates = score_topology_paths(
         (seed,),
