@@ -40,6 +40,21 @@ class Waypoint:
     is_junction: bool = False
 
 
+@dataclass
+class TopologyWaypoint:
+    road_id: int
+    section_id: int
+    lane_id: int
+    s: float
+    transform: Transform
+    id: int
+    successors: list["TopologyWaypoint"]
+    is_junction: bool = False
+
+    def next(self, distance: float) -> list["TopologyWaypoint"]:
+        return self.successors
+
+
 def waypoints(
     yaws: list[float],
     *,
@@ -143,3 +158,67 @@ def test_select_s_curve_route_uses_rank_and_reports_empty_search() -> None:
         ),
     ):
         select_s_curve_route(empty_map, error_config)
+
+
+def test_select_s_curve_route_follows_topology_across_road_boundaries() -> None:
+    chain = [
+        TopologyWaypoint(
+            road_id=1,
+            section_id=0,
+            lane_id=1,
+            s=0.0,
+            transform=Transform(Location(0.0), Rotation(0.0)),
+            id=0,
+            successors=[],
+        ),
+        TopologyWaypoint(
+            road_id=1,
+            section_id=0,
+            lane_id=1,
+            s=2.0,
+            transform=Transform(Location(2.0), Rotation(10.0)),
+            id=1,
+            successors=[],
+        ),
+        TopologyWaypoint(
+            road_id=2,
+            section_id=0,
+            lane_id=1,
+            s=0.0,
+            transform=Transform(Location(4.0), Rotation(20.0)),
+            id=2,
+            successors=[],
+        ),
+        TopologyWaypoint(
+            road_id=2,
+            section_id=1,
+            lane_id=1,
+            s=2.0,
+            transform=Transform(Location(6.0), Rotation(10.0)),
+            id=3,
+            successors=[],
+        ),
+        TopologyWaypoint(
+            road_id=3,
+            section_id=1,
+            lane_id=1,
+            s=0.0,
+            transform=Transform(Location(8.0), Rotation(0.0)),
+            id=4,
+            successors=[],
+        ),
+    ]
+    for waypoint, successor in zip(chain, chain[1:], strict=False):
+        waypoint.successors.append(successor)
+
+    map_obj = SimpleNamespace(generate_waypoints=lambda spacing: (chain[0],))
+    config = SimpleNamespace(
+        waypoint_spacing_m=2.0,
+        window_length_m=8.0,
+        min_turn_each_direction_deg=8.0,
+        candidate_rank=0,
+    )
+
+    selected = select_s_curve_route(map_obj, config)
+
+    assert all(actual is expected for actual, expected in zip(selected.waypoints, chain, strict=True))
