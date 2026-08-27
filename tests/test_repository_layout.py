@@ -27,6 +27,8 @@ REQUIRED_FILES = (
     "cfg/simulator.yaml",
     "cfg/traffic.yaml",
     "cfg/experiments/qualification.yaml",
+    "cfg/experiments/path_cost_pilot.yaml",
+    "src/path_cost.py",
     "src/smoke.py",
     "src/traffic.py",
     "src/follow.py",

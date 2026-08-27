@@ -39,6 +39,10 @@ from .trajectories.s_curve import select_s_curve_route
 class EpisodeSummary:
     experiment_id: str
     policy: str
+    road_id: int
+    section_id: int
+    lane_id: int
+    start_s: float
     completed_route: bool
     target_execution_valid: bool
     observation_valid_fraction: float
@@ -468,6 +472,10 @@ def run_path_cost_episode(
         summary = EpisodeSummary(
             experiment_id=experiment_id,
             policy=policy,
+            road_id=int(route.road_id),
+            section_id=int(route.section_id),
+            lane_id=int(route.lane_id),
+            start_s=float(route.start_s),
             completed_route=completed_route,
             target_execution_valid=target_execution_valid,
             observation_valid_fraction=valid_fraction,

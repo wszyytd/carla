@@ -63,3 +63,29 @@ echo "退出码：$?"
 
 其他退出码：配置无效为 `2`，CARLA 导入/RPC/版本解析失败为 `3`，客户端与服务器主次
 版本不匹配为 `4`。
+
+## 运行 S 形道路路径代价 Pilot
+
+确认冒烟测试成功后，分别运行两个诊断基线：
+
+```bash
+cd /mnt/fast18/sunbo/carla
+conda activate carla10
+python -m src.path_cost --config cfg/experiments/path_cost_pilot.yaml --policy hover
+python -m src.path_cost --config cfg/experiments/path_cost_pilot.yaml --policy vertical_follow
+```
+
+Pilot 会自动对 S 形单车道路窗口排序，并在控制台打印所选 road、section、lane 和起始
+`s`。运行期间不要启动其他同步客户端；本进程必须是唯一调用 `world.tick()` 的主控。
+程序退出时会恢复原始世界设置、关闭 Traffic Manager 同步模式，并只销毁本回合创建的
+车辆和相机。
+
+路径代价 Pilot 退出码：
+
+- `0`：回合完成，目标执行和观测阈值均通过；
+- `2`：配置文件无效；
+- `3`：CARLA 导入、RPC、路线选择、演员、传感器或存储运行失败；
+- `5`：回合正常完成，但目标执行或观测阈值未通过。该状态是有效实验拒绝，不是崩溃。
+
+先运行 Hover，并保留控制台输出及对应 `out/path_cost/<experiment-id>/summary.json`。
+确认路线和目标执行有效后再运行 Vertical Follow；不要通过针对某个策略调参来制造优势。

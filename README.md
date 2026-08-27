@@ -11,10 +11,11 @@ AirSim 运行时逻辑。
 
 1. 验证 CARLA 客户端连接、地图和 Traffic Manager。
 2. 生成目标车辆与背景交通。
-3. 用空中 RGB、深度和实例分割相机跟随目标车。
-4. 与 CarlaAir 做同距离、同 FOV、同分辨率的 A/B 测试。
-5. 构造单车—建筑遮挡场景，比较多条固定观测轨迹。
-6. 只有固定轨迹实验表明最优策略随场景变化后，才训练世界模型。
+3. 在不引入遮挡的 S 形道路上比较 Hover 与 Vertical Follow 的观测有效性和路径长度。
+4. 扩展 Reactive、有限时域前瞻和全路线 Oracle 策略。
+5. 与 CarlaAir 做同距离、同 FOV、同分辨率的 A/B 测试。
+6. 构造单车—建筑遮挡场景，比较多条固定观测轨迹。
+7. 只有固定轨迹实验表明最优策略随场景变化后，才训练世界模型。
 
 ## 目录
 
@@ -30,6 +31,7 @@ tests/                       无需启动 CARLA 的离线测试
 入口状态：
 
 - `src/smoke.py`：已实现，只读连接 CARLA 并打印地图与 Actor 摘要。
+- `src/path_cost.py`：已实现，自动选择 S 形单车道路窗口并运行路径代价 Pilot。
 - `src/traffic.py`：后续生成并安全清理 Traffic Manager 车辆。
 - `src/follow.py`：后续选择目标车，让空中相机跟随并保存验证帧。
 
@@ -64,6 +66,26 @@ python -m src.smoke --config cfg/simulator.yaml
 - `3`：CARLA 包导入、RPC 读取或版本解析失败。
 - `4`：客户端与服务器主次版本不匹配。
 
+## S 形道路路径代价 Pilot
+
+Pilot 会从当前地图的驾驶车道中构造固定长度窗口，按左右双向累计转角对 S 形程度排序，
+再选择配置中的候选名次。目标车辆通过 Traffic Manager `set_path` 沿真实车道行驶；空中
+RGB 与实例分割相机按同一 CARLA 帧配对。控制台会打印所选 road、section、lane、起始
+`s`、目标执行质量、有效观测比例以及无人机/目标路径长度。
+
+服务器运行命令：
+
+```bash
+cd /mnt/fast18/sunbo/carla
+conda activate carla10
+python -m src.path_cost --config cfg/experiments/path_cost_pilot.yaml --policy hover
+python -m src.path_cost --config cfg/experiments/path_cost_pilot.yaml --policy vertical_follow
+```
+
+运行期间该进程是唯一的同步 tick 主控，不要同时运行其他会调用 `world.tick()` 的客户端。
+退出码 `5` 表示仿真正常完成但实验阈值未通过，是有效的实验拒绝结果，不是软件崩溃。
+每次运行的解析配置、逐帧 CSV、摘要和抽样 PNG 写入 `out/path_cost/<experiment-id>/`。
+
 ## 服务器同步
 
 建议把仓库手动同步到：
@@ -83,6 +105,6 @@ CARLA 0.10.0 发行包继续独立放在服务器现有目录：
 
 ## 当前完成状态
 
-配置验证、即时进度输出和只读连接冒烟测试已经实现，并通过 Python 3.10 离线测试。
-交通生成、传感器采集和观测轨迹目前只有明确模块边界，尚未实现仿真行为；它们需要分别
-经过测试驱动实现，并在服务器的 CARLA 0.10.0 环境中验证。
+配置验证、即时进度输出、只读连接冒烟测试，以及 Hover/Vertical Follow 的单场景路径
+代价 Pilot 已完成本机离线测试。真实地图候选、车辆路径跟随、传感器吞吐和阈值仍需在
+服务器的 CARLA 0.10.0 环境完成首次验收；Reactive、前瞻规划和 Oracle 尚未实现。
