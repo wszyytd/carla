@@ -126,11 +126,28 @@ def test_score_lane_windows_orders_score_then_lane_metadata() -> None:
 
 
 def test_select_s_curve_route_uses_rank_and_reports_empty_search() -> None:
-    generated = (
-        *waypoints([0.0, 10.0, 20.0, 10.0, 0.0], road_id=2),
-        *waypoints([0.0, 10.0, 20.0, 10.0, 0.0], road_id=1),
+    def topology_chain(road_id: int, first_id: int) -> list[TopologyWaypoint]:
+        chain = [
+            TopologyWaypoint(
+                road_id=road_id,
+                section_id=0,
+                lane_id=1,
+                s=float(index * 2),
+                transform=Transform(Location(float(index * 2)), Rotation(yaw)),
+                id=first_id + index,
+                successors=[],
+            )
+            for index, yaw in enumerate([0.0, 10.0, 20.0, 10.0, 0.0])
+        ]
+        for waypoint, successor in zip(chain, chain[1:], strict=False):
+            waypoint.successors.append(successor)
+        return chain
+
+    route_two = topology_chain(2, 10)
+    route_one = topology_chain(1, 20)
+    map_obj = SimpleNamespace(
+        generate_waypoints=lambda spacing: (route_two[0], route_one[0])
     )
-    map_obj = SimpleNamespace(generate_waypoints=lambda spacing: generated)
     config = SimpleNamespace(
         waypoint_spacing_m=2.0,
         window_length_m=8.0,

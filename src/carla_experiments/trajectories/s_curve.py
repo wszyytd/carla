@@ -146,11 +146,111 @@ def score_lane_windows(
     )
 
 
+def _waypoint_identity(waypoint: Any) -> tuple[Any, ...]:
+    waypoint_id = getattr(waypoint, "id", None)
+    if waypoint_id is not None:
+        return ("id", waypoint_id)
+
+    location = waypoint.transform.location
+    return (
+        "metadata",
+        int(waypoint.road_id),
+        int(waypoint.section_id),
+        int(waypoint.lane_id),
+        float(waypoint.s),
+        round(float(location.x), 3),
+        round(float(location.y), 3),
+        round(float(location.z), 3),
+    )
+
+
+def _successor_key(waypoint: Any) -> tuple[Any, ...]:
+    location = waypoint.transform.location
+    return (
+        int(waypoint.road_id),
+        int(waypoint.section_id),
+        int(waypoint.lane_id),
+        float(waypoint.s),
+        round(float(location.x), 3),
+        round(float(location.y), 3),
+        round(float(location.z), 3),
+        float(waypoint.transform.rotation.yaw),
+        repr(_waypoint_identity(waypoint)),
+    )
+
+
+def score_topology_paths(
+    seeds: Iterable[Any],
+    *,
+    step_distance_m: float,
+    window_length_m: float,
+    min_turn_each_direction_deg: float,
+) -> list[RouteCandidate]:
+    """Return deterministic S-like candidates found by forward topology traversal."""
+
+    candidates: list[RouteCandidate] = []
+    seen_path_identities: set[tuple[tuple[Any, ...], ...]] = set()
+    for seed in seeds:
+        if getattr(seed, "is_junction", False):
+            continue
+
+        active_paths = [(seed,)]
+        completed_paths: list[tuple[Any, ...]] = []
+        while active_paths:
+            path = active_paths.pop(0)
+            path_identities = {_waypoint_identity(waypoint) for waypoint in path}
+            for successor in sorted(
+                path[-1].next(step_distance_m), key=_successor_key
+            ):
+                if getattr(successor, "is_junction", False):
+                    continue
+
+                successor_identity = _waypoint_identity(successor)
+                if successor_identity in path_identities:
+                    continue
+
+                if len(active_paths) + len(completed_paths) >= 64:
+                    break
+
+                extended_path = (*path, successor)
+                if _polyline_length(extended_path) >= window_length_m:
+                    completed_paths.append(extended_path)
+                else:
+                    active_paths.append(extended_path)
+
+        for path in completed_paths:
+            candidate = score_waypoint_window(
+                path,
+                min_turn_each_direction_deg=min_turn_each_direction_deg,
+            )
+            if candidate is None:
+                continue
+
+            path_identity = tuple(_waypoint_identity(waypoint) for waypoint in path)
+            if path_identity in seen_path_identities:
+                continue
+            seen_path_identities.add(path_identity)
+            candidates.append(candidate)
+
+    return sorted(
+        candidates,
+        key=lambda item: (
+            -item.score,
+            item.road_id,
+            item.section_id,
+            item.lane_id,
+            item.start_s,
+        ),
+    )
+
+
 def select_s_curve_route(map_obj: Any, config: RouteConfig) -> RouteCandidate:
     """Select a configured deterministic rank from one CARLA map."""
 
-    candidates = score_lane_windows(
-        map_obj.generate_waypoints(config.waypoint_spacing_m),
+    seeds = map_obj.generate_waypoints(config.waypoint_spacing_m)
+    candidates = score_topology_paths(
+        seeds,
+        step_distance_m=config.waypoint_spacing_m,
         window_length_m=config.window_length_m,
         min_turn_each_direction_deg=config.min_turn_each_direction_deg,
     )

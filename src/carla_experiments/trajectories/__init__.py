@@ -16,6 +16,7 @@ from .baselines import (
 from .s_curve import (
     RouteCandidate,
     score_lane_windows,
+    score_topology_paths,
     score_waypoint_window,
     select_s_curve_route,
     wrapped_yaw_delta,
@@ -34,6 +35,7 @@ __all__ = [
     "look_at",
     "norm",
     "score_lane_windows",
+    "score_topology_paths",
     "score_waypoint_window",
     "select_s_curve_route",
     "step_angle",
