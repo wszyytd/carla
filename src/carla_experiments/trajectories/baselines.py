@@ -163,11 +163,21 @@ def command_baseline(
     else:
         raise ValueError(f"unsupported baseline policy: {policy}")
 
-    next_state = advance_jerk_limited(
+    translated_state = advance_jerk_limited(
         state,
         desired_position=desired_position,
-        desired_gimbal=look_at(desired_position, target_position),
+        desired_gimbal=state.gimbal,
         limits=limits,
         dt=dt,
+    )
+    next_state = MotionState(
+        position=translated_state.position,
+        velocity=translated_state.velocity,
+        acceleration=translated_state.acceleration,
+        gimbal=_step_gimbal(
+            state.gimbal,
+            look_at(translated_state.position, target_position),
+            limits.max_gimbal_rate_deg_s * dt,
+        ),
     )
     return CameraCommand(state=next_state, policy=policy)

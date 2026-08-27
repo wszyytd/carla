@@ -105,6 +105,21 @@ def test_vertical_follow_uses_target_horizontal_position_and_relative_altitude()
     assert command.state.position == Vec3(25.0, -10.0, 42.0)
 
 
+def test_vertical_follow_gimbal_tracks_from_reachable_position_not_unreached_goal() -> None:
+    command = command_baseline(
+        "vertical_follow",
+        stationary(),
+        target_position=Vec3(25.0, -10.0, 2.0),
+        hover_position=Vec3(0.0, 0.0, 40.0),
+        altitude_m=40.0,
+        limits=LIMITS,
+        dt=0.05,
+    )
+
+    assert command.state.position.x < 25.0
+    assert command.state.gimbal.pitch > -90.0
+
+
 def test_command_baseline_rejects_unknown_policy() -> None:
     with pytest.raises(ValueError, match="unsupported baseline policy: orbit"):
         command_baseline(
