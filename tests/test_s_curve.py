@@ -178,10 +178,48 @@ def test_select_s_curve_route_uses_rank_and_reports_empty_search() -> None:
         ValueError,
         match=(
             r"no S-like driving-lane window found: spacing=2\.0m, "
-            r"length=120\.0m, min_turn=8\.0deg"
+            r"length=120\.0m, min_turn=8\.0deg, "
+            r"seeds=0, completed_paths=0"
         ),
     ):
         select_s_curve_route(empty_map, error_config)
+
+
+def test_select_s_curve_route_reports_completed_non_s_paths() -> None:
+    chain = [
+        TopologyWaypoint(
+            road_id=1,
+            section_id=0,
+            lane_id=1,
+            s=float(index * 2),
+            transform=Transform(
+                Location(float(index * 2)), Rotation(float(index * 10))
+            ),
+            id=index,
+            successors=[],
+        )
+        for index in range(5)
+    ]
+    for waypoint, successor in zip(chain, chain[1:], strict=False):
+        waypoint.successors.append(successor)
+
+    map_obj = SimpleNamespace(generate_waypoints=lambda spacing: (chain[0],))
+    config = SimpleNamespace(
+        waypoint_spacing_m=2.0,
+        window_length_m=8.0,
+        min_turn_each_direction_deg=8.0,
+        candidate_rank=0,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"no S-like driving-lane window found: spacing=2\.0m, "
+            r"length=8\.0m, min_turn=8\.0deg, "
+            r"seeds=1, completed_paths=1"
+        ),
+    ):
+        select_s_curve_route(map_obj, config)
 
 
 def test_select_s_curve_route_follows_topology_across_road_boundaries() -> None:

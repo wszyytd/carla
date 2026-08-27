@@ -23,6 +23,13 @@ class RouteCandidate:
     score: float
 
 
+@dataclass(frozen=True)
+class _TopologyPathSearchResult:
+    candidates: list[RouteCandidate]
+    seed_count: int
+    completed_path_count: int
+
+
 def wrapped_yaw_delta(previous_deg: float, current_deg: float) -> float:
     """Return the shortest signed rotation from ``previous`` to ``current``."""
 
@@ -179,18 +186,21 @@ def _successor_key(waypoint: Any) -> tuple[Any, ...]:
     )
 
 
-def score_topology_paths(
+def _score_topology_paths_with_stats(
     seeds: Iterable[Any],
     *,
     step_distance_m: float,
     window_length_m: float,
     min_turn_each_direction_deg: float,
-) -> list[RouteCandidate]:
-    """Return deterministic S-like candidates found by forward topology traversal."""
+) -> _TopologyPathSearchResult:
+    """Find S-like candidates and retain topology traversal diagnostics."""
 
     candidates: list[RouteCandidate] = []
     seen_path_identities: set[tuple[tuple[Any, ...], ...]] = set()
+    seed_count = 0
+    completed_path_count = 0
     for seed in seeds:
+        seed_count += 1
         if getattr(seed, "is_junction", False):
             continue
 
@@ -215,6 +225,7 @@ def score_topology_paths(
                 extended_path = (*path, successor)
                 if _polyline_length(extended_path) >= window_length_m:
                     completed_paths.append(extended_path)
+                    completed_path_count += 1
                 else:
                     active_paths.append(extended_path)
 
@@ -232,28 +243,50 @@ def score_topology_paths(
             seen_path_identities.add(path_identity)
             candidates.append(candidate)
 
-    return sorted(
-        candidates,
-        key=lambda item: (
-            -item.score,
-            item.road_id,
-            item.section_id,
-            item.lane_id,
-            item.start_s,
+    return _TopologyPathSearchResult(
+        candidates=sorted(
+            candidates,
+            key=lambda item: (
+                -item.score,
+                item.road_id,
+                item.section_id,
+                item.lane_id,
+                item.start_s,
+            ),
         ),
+        seed_count=seed_count,
+        completed_path_count=completed_path_count,
     )
+
+
+def score_topology_paths(
+    seeds: Iterable[Any],
+    *,
+    step_distance_m: float,
+    window_length_m: float,
+    min_turn_each_direction_deg: float,
+) -> list[RouteCandidate]:
+    """Return deterministic S-like candidates found by forward topology traversal."""
+
+    return _score_topology_paths_with_stats(
+        seeds,
+        step_distance_m=step_distance_m,
+        window_length_m=window_length_m,
+        min_turn_each_direction_deg=min_turn_each_direction_deg,
+    ).candidates
 
 
 def select_s_curve_route(map_obj: Any, config: RouteConfig) -> RouteCandidate:
     """Select a configured deterministic rank from one CARLA map."""
 
     seeds = map_obj.generate_waypoints(config.waypoint_spacing_m)
-    candidates = score_topology_paths(
+    search_result = _score_topology_paths_with_stats(
         seeds,
         step_distance_m=config.waypoint_spacing_m,
         window_length_m=config.window_length_m,
         min_turn_each_direction_deg=config.min_turn_each_direction_deg,
     )
+    candidates = search_result.candidates
     if config.candidate_rank < len(candidates):
         return candidates[config.candidate_rank]
 
@@ -261,5 +294,7 @@ def select_s_curve_route(map_obj: Any, config: RouteConfig) -> RouteCandidate:
         "no S-like driving-lane window found: "
         f"spacing={config.waypoint_spacing_m:.1f}m, "
         f"length={config.window_length_m:.1f}m, "
-        f"min_turn={config.min_turn_each_direction_deg:.1f}deg"
+        f"min_turn={config.min_turn_each_direction_deg:.1f}deg, "
+        f"seeds={search_result.seed_count}, "
+        f"completed_paths={search_result.completed_path_count}"
     )
