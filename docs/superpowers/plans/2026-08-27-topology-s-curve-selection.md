@@ -170,4 +170,3 @@ Expected: only the plan, topology selector, exports, and S-curve tests changed; 
 Run: `git add docs/superpowers/plans/2026-08-27-topology-s-curve-selection.md src/carla_experiments/trajectories/s_curve.py src/carla_experiments/trajectories/__init__.py tests/test_s_curve.py`
 
 Run: `git commit -m "fix: follow topology for S-curve selection"`
-

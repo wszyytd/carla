@@ -283,7 +283,10 @@ def test_select_s_curve_route_follows_topology_across_road_boundaries() -> None:
 
     selected = select_s_curve_route(map_obj, config)
 
-    assert all(actual is expected for actual, expected in zip(selected.waypoints, chain, strict=True))
+    assert all(
+        actual is expected
+        for actual, expected in zip(selected.waypoints, chain, strict=True)
+    )
 
 
 def test_score_topology_paths_sorts_reverse_successors_with_heterogeneous_ids() -> None:
