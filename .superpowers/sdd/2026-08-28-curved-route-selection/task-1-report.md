@@ -46,3 +46,12 @@ scoring path through `PathCostConfig` will need the Task 2 migration.
 ## Commit
 
 `Migrate route config turn threshold` (final commit hash supplied in handoff)
+
+## Review fix: reject legacy key
+
+Added `test_parse_path_cost_config_rejects_legacy_turn_key`, requiring a
+configuration containing both route threshold keys to fail with guidance to use
+`route.min_total_turn_deg`. Before the parser guard, the focused suite was RED:
+`1 failed, 17 passed` because the legacy key was silently accepted. The minimal
+guard now raises an explicit `ValueError`; the exact focused command is GREEN
+with `18 passed in 0.07s`.

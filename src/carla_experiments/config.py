@@ -215,6 +215,11 @@ def parse_path_cost_config(config: Mapping[str, Any]) -> PathCostConfig:
     world_values = _mapping(config, "world")
     traffic_values = _mapping(config, "traffic_manager")
     route_values = _mapping(config, "route")
+    if "min_turn_each_direction_deg" in route_values:
+        raise ValueError(
+            "route.min_turn_each_direction_deg is unsupported; "
+            "use route.min_total_turn_deg"
+        )
     target_values = _mapping(config, "target")
     camera_values = _mapping(config, "camera")
     uav_values = _mapping(config, "uav")

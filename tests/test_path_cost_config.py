@@ -123,3 +123,19 @@ def test_parse_path_cost_config_requires_min_total_turn_deg() -> None:
 
     with pytest.raises(ValueError, match=r"route\.min_total_turn_deg"):
         parse_path_cost_config(mapping)
+
+
+def test_parse_path_cost_config_rejects_legacy_turn_key() -> None:
+    mapping = valid_mapping()
+    route = mapping["route"]
+    assert isinstance(route, dict)
+    route["min_turn_each_direction_deg"] = 8.0
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            r"route\.min_turn_each_direction_deg is unsupported; "
+            r"use route\.min_total_turn_deg"
+        ),
+    ):
+        parse_path_cost_config(mapping)
