@@ -35,7 +35,7 @@ class TrafficManagerConfig:
 class RouteConfig:
     waypoint_spacing_m: float
     window_length_m: float
-    min_turn_each_direction_deg: float
+    min_total_turn_deg: float
     candidate_rank: int
     target_speed_mps: float
     completion_tolerance_m: float
@@ -248,10 +248,10 @@ def parse_path_cost_config(config: Mapping[str, Any]) -> PathCostConfig:
         window_length_m=_number(
             route_values, "window_length_m", "route.window_length_m", minimum=0.0
         ),
-        min_turn_each_direction_deg=_number(
+        min_total_turn_deg=_number(
             route_values,
-            "min_turn_each_direction_deg",
-            "route.min_turn_each_direction_deg",
+            "min_total_turn_deg",
+            "route.min_total_turn_deg",
             minimum=0.0,
         ),
         candidate_rank=_integer(route_values, "candidate_rank", "route.candidate_rank"),

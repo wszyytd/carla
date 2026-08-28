@@ -19,7 +19,7 @@ def valid_mapping() -> dict[str, object]:
         "route": {
             "waypoint_spacing_m": 2.0,
             "window_length_m": 120.0,
-            "min_turn_each_direction_deg": 8.0,
+            "min_total_turn_deg": 60.0,
             "candidate_rank": 0,
             "target_speed_mps": 8.0,
             "completion_tolerance_m": 3.0,
@@ -112,4 +112,14 @@ def test_parse_path_cost_config_rejects_empty_required_sections() -> None:
     mapping["camera"] = None
 
     with pytest.raises(ValueError, match=r"camera must be a mapping"):
+        parse_path_cost_config(mapping)
+
+
+def test_parse_path_cost_config_requires_min_total_turn_deg() -> None:
+    mapping = valid_mapping()
+    route = mapping["route"]
+    assert isinstance(route, dict)
+    route.pop("min_total_turn_deg")
+
+    with pytest.raises(ValueError, match=r"route\.min_total_turn_deg"):
         parse_path_cost_config(mapping)
