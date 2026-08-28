@@ -52,9 +52,9 @@ def _polyline_length(waypoints: tuple[Any, ...]) -> float:
 
 
 def score_waypoint_window(
-    waypoints: tuple[Any, ...], *, min_turn_each_direction_deg: float
+    waypoints: tuple[Any, ...], *, min_total_turn_deg: float
 ) -> RouteCandidate | None:
-    """Score one same-lane window, rejecting non-S and junction windows."""
+    """Score one same-lane curved window, rejecting junction windows."""
 
     if len(waypoints) < 2 or any(getattr(item, "is_junction", False) for item in waypoints):
         return None
@@ -68,12 +68,12 @@ def score_waypoint_window(
     ]
     positive = sum(delta for delta in deltas if delta > 0.0)
     negative = -sum(delta for delta in deltas if delta < 0.0)
-    if positive < min_turn_each_direction_deg or negative < min_turn_each_direction_deg:
+    score = positive + negative
+    if score < min_total_turn_deg:
         return None
 
     first = waypoints[0]
     last = waypoints[-1]
-    score = min(positive, negative)
     return RouteCandidate(
         waypoints=waypoints,
         road_id=int(first.road_id),
@@ -122,9 +122,9 @@ def score_lane_windows(
     waypoints: Iterable[Any],
     *,
     window_length_m: float,
-    min_turn_each_direction_deg: float,
+    min_total_turn_deg: float,
 ) -> list[RouteCandidate]:
-    """Return deterministic S-like route candidates from generated waypoints."""
+    """Return deterministic curved route candidates from generated waypoints."""
 
     lanes: dict[tuple[int, int, int], list[Any]] = defaultdict(list)
     for waypoint in waypoints:
@@ -136,7 +136,7 @@ def score_lane_windows(
         for window in _lane_windows(_oriented_lane(lane_waypoints), window_length_m):
             candidate = score_waypoint_window(
                 window,
-                min_turn_each_direction_deg=min_turn_each_direction_deg,
+                min_total_turn_deg=min_total_turn_deg,
             )
             if candidate is not None:
                 candidates.append(candidate)
@@ -191,9 +191,9 @@ def _score_topology_paths_with_stats(
     *,
     step_distance_m: float,
     window_length_m: float,
-    min_turn_each_direction_deg: float,
+    min_total_turn_deg: float,
 ) -> _TopologyPathSearchResult:
-    """Find S-like candidates and retain topology traversal diagnostics."""
+    """Find curved candidates and retain topology traversal diagnostics."""
 
     candidates: list[RouteCandidate] = []
     seen_path_identities: set[tuple[tuple[Any, ...], ...]] = set()
@@ -232,7 +232,7 @@ def _score_topology_paths_with_stats(
         for path in completed_paths:
             candidate = score_waypoint_window(
                 path,
-                min_turn_each_direction_deg=min_turn_each_direction_deg,
+                min_total_turn_deg=min_total_turn_deg,
             )
             if candidate is None:
                 continue
@@ -264,15 +264,15 @@ def score_topology_paths(
     *,
     step_distance_m: float,
     window_length_m: float,
-    min_turn_each_direction_deg: float,
+    min_total_turn_deg: float,
 ) -> list[RouteCandidate]:
-    """Return deterministic S-like candidates found by forward topology traversal."""
+    """Return deterministic curved candidates found by forward topology traversal."""
 
     return _score_topology_paths_with_stats(
         seeds,
         step_distance_m=step_distance_m,
         window_length_m=window_length_m,
-        min_turn_each_direction_deg=min_turn_each_direction_deg,
+        min_total_turn_deg=min_total_turn_deg,
     ).candidates
 
 
@@ -284,17 +284,17 @@ def select_s_curve_route(map_obj: Any, config: RouteConfig) -> RouteCandidate:
         seeds,
         step_distance_m=config.waypoint_spacing_m,
         window_length_m=config.window_length_m,
-        min_turn_each_direction_deg=config.min_turn_each_direction_deg,
+        min_total_turn_deg=config.min_total_turn_deg,
     )
     candidates = search_result.candidates
     if config.candidate_rank < len(candidates):
         return candidates[config.candidate_rank]
 
     raise ValueError(
-        "no S-like driving-lane window found: "
+        "no curved driving-lane window found: "
         f"spacing={config.waypoint_spacing_m:.1f}m, "
         f"length={config.window_length_m:.1f}m, "
-        f"min_turn={config.min_turn_each_direction_deg:.1f}deg, "
+        f"min_total_turn={config.min_total_turn_deg:.1f}deg, "
         f"seeds={search_result.seed_count}, "
         f"completed_paths={search_result.completed_path_count}"
     )

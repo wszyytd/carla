@@ -83,19 +83,35 @@ def waypoints(
     )
 
 
-def test_score_waypoint_window_requires_turns_in_both_directions() -> None:
+def test_score_waypoint_window_scores_total_turn_and_rejects_below_threshold() -> None:
     candidate = score_waypoint_window(
         waypoints([0.0, 10.0, 20.0, 10.0, 0.0]),
-        min_turn_each_direction_deg=8.0,
+        min_total_turn_deg=40.0,
     )
 
     assert candidate is not None
     assert candidate.positive_turn_deg == pytest.approx(20.0)
     assert candidate.negative_turn_deg == pytest.approx(20.0)
-    assert candidate.score == pytest.approx(20.0)
+    assert candidate.score == pytest.approx(40.0)
     assert score_waypoint_window(
         waypoints([0.0, 10.0, 20.0, 30.0]),
-        min_turn_each_direction_deg=8.0,
+        min_total_turn_deg=40.0,
+    ) is None
+
+
+def test_score_waypoint_window_accepts_one_direction_total_turn_threshold() -> None:
+    candidate = score_waypoint_window(
+        waypoints([0.0, 20.0, 40.0, 60.0, 80.0]),
+        min_total_turn_deg=60.0,
+    )
+
+    assert candidate is not None
+    assert candidate.positive_turn_deg == pytest.approx(80.0)
+    assert candidate.negative_turn_deg == pytest.approx(0.0)
+    assert candidate.score == pytest.approx(80.0)
+    assert score_waypoint_window(
+        waypoints([0.0, 10.0, 20.0, 30.0, 40.0]),
+        min_total_turn_deg=60.0,
     ) is None
 
 
@@ -108,7 +124,7 @@ def test_score_lane_windows_rejects_windows_that_enter_junctions() -> None:
     candidates = score_lane_windows(
         waypoints([0.0, 10.0, 20.0, 10.0, 0.0], junction_index=2),
         window_length_m=8.0,
-        min_turn_each_direction_deg=8.0,
+        min_total_turn_deg=8.0,
     )
 
     assert candidates == []
@@ -122,13 +138,13 @@ def test_score_lane_windows_orders_score_then_lane_metadata() -> None:
             *waypoints([0.0, 6.0, 12.0, 6.0, 0.0], road_id=3),
         ),
         window_length_m=8.0,
-        min_turn_each_direction_deg=5.0,
+        min_total_turn_deg=5.0,
     )
 
     assert [(item.score, item.road_id) for item in candidates] == [
-        (20.0, 1),
-        (20.0, 2),
-        (12.0, 3),
+        (40.0, 1),
+        (40.0, 2),
+        (24.0, 3),
     ]
 
 
@@ -158,7 +174,7 @@ def test_select_s_curve_route_uses_rank_and_reports_empty_search() -> None:
     config = SimpleNamespace(
         waypoint_spacing_m=2.0,
         window_length_m=8.0,
-        min_turn_each_direction_deg=8.0,
+        min_total_turn_deg=8.0,
         candidate_rank=1,
     )
 
@@ -171,14 +187,14 @@ def test_select_s_curve_route_uses_rank_and_reports_empty_search() -> None:
     error_config = SimpleNamespace(
         waypoint_spacing_m=2.0,
         window_length_m=120.0,
-        min_turn_each_direction_deg=8.0,
+        min_total_turn_deg=8.0,
         candidate_rank=0,
     )
     with pytest.raises(
         ValueError,
         match=(
-            r"no S-like driving-lane window found: spacing=2\.0m, "
-            r"length=120\.0m, min_turn=8\.0deg, "
+            r"no curved driving-lane window found: spacing=2\.0m, "
+            r"length=120\.0m, min_total_turn=8\.0deg, "
             r"seeds=0, completed_paths=0"
         ),
     ):
@@ -207,15 +223,15 @@ def test_select_s_curve_route_reports_completed_non_s_paths() -> None:
     config = SimpleNamespace(
         waypoint_spacing_m=2.0,
         window_length_m=8.0,
-        min_turn_each_direction_deg=8.0,
+        min_total_turn_deg=60.0,
         candidate_rank=0,
     )
 
     with pytest.raises(
         ValueError,
         match=(
-            r"no S-like driving-lane window found: spacing=2\.0m, "
-            r"length=8\.0m, min_turn=8\.0deg, "
+            r"no curved driving-lane window found: spacing=2\.0m, "
+            r"length=8\.0m, min_total_turn=60\.0deg, "
             r"seeds=1, completed_paths=1"
         ),
     ):
@@ -277,7 +293,7 @@ def test_select_s_curve_route_follows_topology_across_road_boundaries() -> None:
     config = SimpleNamespace(
         waypoint_spacing_m=2.0,
         window_length_m=8.0,
-        min_turn_each_direction_deg=8.0,
+        min_total_turn_deg=8.0,
         candidate_rank=0,
     )
 
@@ -325,7 +341,7 @@ def test_score_topology_paths_sorts_reverse_successors_with_heterogeneous_ids() 
         (seed,),
         step_distance_m=2.0,
         window_length_m=8.0,
-        min_turn_each_direction_deg=8.0,
+        min_total_turn_deg=8.0,
     )
 
     assert [candidate.waypoints[1].id for candidate in candidates] == ["branch-a", 2]
@@ -369,7 +385,7 @@ def test_score_topology_paths_rejects_chain_that_enters_junction() -> None:
         (chain[0],),
         step_distance_m=2.0,
         window_length_m=8.0,
-        min_turn_each_direction_deg=8.0,
+        min_total_turn_deg=8.0,
     )
 
     assert candidates == []
@@ -395,7 +411,7 @@ def test_score_topology_paths_terminates_on_cycle_without_complete_path() -> Non
         (cycle[0],),
         step_distance_m=2.0,
         window_length_m=8.0,
-        min_turn_each_direction_deg=8.0,
+        min_total_turn_deg=8.0,
     )
 
     assert candidates == []
@@ -450,7 +466,7 @@ def test_score_topology_paths_retains_at_most_64_paths_per_seed() -> None:
         (seed,),
         step_distance_m=2.0,
         window_length_m=2.0,
-        min_turn_each_direction_deg=0.0,
+        min_total_turn_deg=0.0,
     )
 
     assert len(candidates) == 64
@@ -481,7 +497,7 @@ def test_score_topology_paths_eliminates_duplicate_path_identities() -> None:
         (first[0], duplicate[0]),
         step_distance_m=2.0,
         window_length_m=8.0,
-        min_turn_each_direction_deg=8.0,
+        min_total_turn_deg=8.0,
     )
 
     assert len(candidates) == 1
