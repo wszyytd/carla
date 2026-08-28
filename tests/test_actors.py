@@ -166,7 +166,7 @@ def test_configure_target_path_calls_traffic_manager_in_exact_order() -> None:
         ("auto_lane_change", False),
         ("left_lanechange", 0.0),
         ("right_lanechange", 0.0),
-        ("desired_speed", 8.0),
+        ("desired_speed", 28.8),
         ("path", ["location-1", "location-2"]),
     ]
 

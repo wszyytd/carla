@@ -75,7 +75,7 @@ def configure_target_path(
     traffic_manager.auto_lane_change(vehicle, False)
     traffic_manager.random_left_lanechange_percentage(vehicle, 0.0)
     traffic_manager.random_right_lanechange_percentage(vehicle, 0.0)
-    traffic_manager.set_desired_speed(vehicle, target_speed_mps)
+    traffic_manager.set_desired_speed(vehicle, target_speed_mps * 3.6)
     traffic_manager.set_path(
         vehicle,
         [waypoint.transform.location for waypoint in route.waypoints[1:]],
