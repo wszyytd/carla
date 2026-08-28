@@ -36,6 +36,12 @@ def test_parser_accepts_only_supported_policies() -> None:
         parser.parse_args(["--policy", "orbit"])
 
 
+def test_parser_help_describes_the_current_continuous_curve_pilot() -> None:
+    help_text = path_cost.build_parser().format_help()
+
+    assert "连续、非路口的 120 m 弯道（总转角至少 60°）" in help_text
+
+
 def test_main_prints_complete_success_summary(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

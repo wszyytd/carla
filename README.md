@@ -11,7 +11,8 @@ AirSim 运行时逻辑。
 
 1. 验证 CARLA 客户端连接、地图和 Traffic Manager。
 2. 生成目标车辆与背景交通。
-3. 在不引入遮挡的 S 形道路上比较 Hover 与 Vertical Follow 的观测有效性和路径长度。
+3. 在 Town10 的连续、非路口 120 m 弯道（总转角至少 60°）上进行工程验收，比较 Hover 与
+   Vertical Follow 的观测有效性和路径长度。
 4. 扩展 Reactive、有限时域前瞻和全路线 Oracle 策略。
 5. 与 CarlaAir 做同距离、同 FOV、同分辨率的 A/B 测试。
 6. 构造单车—建筑遮挡场景，比较多条固定观测轨迹。
@@ -31,7 +32,7 @@ tests/                       无需启动 CARLA 的离线测试
 入口状态：
 
 - `src/smoke.py`：已实现，只读连接 CARLA 并打印地图与 Actor 摘要。
-- `src/path_cost.py`：已实现，自动选择 S 形单车道路窗口并运行路径代价 Pilot。
+- `src/path_cost.py`：已实现，自动选择连续、非路口的单车道路窗口并运行路径代价 Pilot。
 - `src/traffic.py`：后续生成并安全清理 Traffic Manager 车辆。
 - `src/follow.py`：后续选择目标车，让空中相机跟随并保存验证帧。
 
@@ -66,12 +67,14 @@ python -m src.smoke --config cfg/simulator.yaml
 - `3`：CARLA 包导入、RPC 读取或版本解析失败。
 - `4`：客户端与服务器主次版本不匹配。
 
-## S 形道路路径代价 Pilot
+## 连续弯道路径代价 Pilot
 
-Pilot 会从当前地图的驾驶车道中构造固定长度窗口，按左右双向累计转角对 S 形程度排序，
-再选择配置中的候选名次。目标车辆通过 Traffic Manager `set_path` 沿真实车道行驶；空中
-RGB 与实例分割相机按同一 CARLA 帧配对。控制台会打印所选 road、section、lane、起始
-`s`、目标执行质量、有效观测比例以及无人机/目标路径长度。
+当前 Town10 工程验收从驾驶车道中选择一条连续、非路口的 120 m 弯道，要求累计转角至少
+60°，再选择配置中的候选名次。目标车辆通过 Traffic Manager `set_path` 沿真实车道行驶；
+空中 RGB 与实例分割相机按同一 CARLA 帧配对。控制台会打印所选 road、section、lane、起始
+`s`、目标执行质量、有效观测比例以及无人机/目标路径长度。这个单一弯道只用于工程验收，
+不足以支持正式研究结论；后续正式实验必须覆盖多个路线形状和曲率等级，并在地图可用时包含
+S/U 形路线。
 
 服务器运行命令：
 

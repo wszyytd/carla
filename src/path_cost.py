@@ -13,7 +13,9 @@ from src.carla_experiments.progress import ProgressReporter
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="运行 CARLA S 形道路空中观测路径代价 Pilot")
+    parser = argparse.ArgumentParser(
+        description="运行 Town10 连续、非路口的 120 m 弯道（总转角至少 60°）路径代价 Pilot"
+    )
     parser.add_argument(
         "--config",
         type=Path,

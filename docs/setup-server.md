@@ -64,7 +64,7 @@ echo "退出码：$?"
 其他退出码：配置无效为 `2`，CARLA 导入/RPC/版本解析失败为 `3`，客户端与服务器主次
 版本不匹配为 `4`。
 
-## 运行 S 形道路路径代价 Pilot
+## 运行连续弯道路径代价 Pilot
 
 确认冒烟测试成功后，分别运行两个诊断基线：
 
@@ -75,10 +75,13 @@ python -m src.path_cost --config cfg/experiments/path_cost_pilot.yaml --policy h
 python -m src.path_cost --config cfg/experiments/path_cost_pilot.yaml --policy vertical_follow
 ```
 
-Pilot 会自动对 S 形单车道路窗口排序，并在控制台打印所选 road、section、lane 和起始
-`s`。运行期间不要启动其他同步客户端；本进程必须是唯一调用 `world.tick()` 的主控。
-程序退出时会恢复原始世界设置、关闭 Traffic Manager 同步模式，并只销毁本回合创建的
-车辆和相机。
+当前 Town10 工程验收会自动选择一条连续、非路口的 120 m 单车道路弯道（累计转角至少
+60°），并在控制台打印所选 road、section、lane 和起始 `s`。运行期间不要启动其他同步
+客户端；本进程必须是唯一调用 `world.tick()` 的主控。程序退出时会恢复原始世界设置、关闭
+Traffic Manager 同步模式，并只销毁本回合创建的车辆和相机。
+
+这个单一弯道只用于工程验收，不能支持正式研究结论。后续正式实验必须使用多个路线形状和
+曲率等级，并在地图可用时加入 S/U 形路线。
 
 路径代价 Pilot 退出码：
 
