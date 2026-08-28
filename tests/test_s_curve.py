@@ -130,6 +130,16 @@ def test_score_lane_windows_rejects_windows_that_enter_junctions() -> None:
     assert candidates == []
 
 
+def test_score_lane_windows_rejects_curve_below_total_turn_threshold() -> None:
+    candidates = score_lane_windows(
+        waypoints([0.0, 10.0, 20.0, 30.0, 40.0]),
+        window_length_m=8.0,
+        min_total_turn_deg=60.0,
+    )
+
+    assert candidates == []
+
+
 def test_score_lane_windows_orders_score_then_lane_metadata() -> None:
     candidates = score_lane_windows(
         (
@@ -345,6 +355,32 @@ def test_score_topology_paths_sorts_reverse_successors_with_heterogeneous_ids() 
     )
 
     assert [candidate.waypoints[1].id for candidate in candidates] == ["branch-a", 2]
+
+
+def test_score_topology_paths_rejects_curve_below_total_turn_threshold() -> None:
+    chain = [
+        TopologyWaypoint(
+            road_id=1,
+            section_id=0,
+            lane_id=1,
+            s=float(index * 2),
+            transform=Transform(Location(float(index * 2)), Rotation(float(index * 10))),
+            id=index,
+            successors=[],
+        )
+        for index in range(5)
+    ]
+    for waypoint, successor in zip(chain, chain[1:], strict=False):
+        waypoint.successors.append(successor)
+
+    candidates = score_topology_paths(
+        (chain[0],),
+        step_distance_m=2.0,
+        window_length_m=8.0,
+        min_total_turn_deg=60.0,
+    )
+
+    assert candidates == []
 
 
 def test_score_topology_paths_rejects_chain_that_enters_junction() -> None:
