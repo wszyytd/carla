@@ -34,3 +34,9 @@
 ## Commit
 
 `docs: clarify curved route pilot boundary`
+
+## Fix round 1 evidence
+
+- The research spec now states that the selector checks only continuity, non-junction status, window length, and cumulative turn. It does not check buildings or line of sight; no occlusion is an experiment condition confirmed through manual route validation.
+- Stage B now requires controlled combinations spanning multiple route shapes and multiple curvature levels, in addition to speed and observation constraints.
+- Re-verified with `python -m pytest tests/test_path_cost.py -q -p no:cacheprovider`, `python -m ruff check . --no-cache`, and `git diff --check`.
