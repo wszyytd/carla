@@ -5,7 +5,7 @@ from src.carla_experiments.config import ObservationConfig
 from src.carla_experiments.metrics import (
     ProjectedBox,
     build_projection_matrix,
-    count_instance_pixels,
+    count_dominant_vehicle_instance_pixels,
     derive_motion_metrics,
     evaluate_observation,
     path_length,
@@ -50,31 +50,81 @@ def test_projection_marks_box_with_nonpositive_depth_as_not_in_front() -> None:
     assert projected.in_front is False
 
 
-def test_count_instance_pixels_decodes_green_blue_actor_id() -> None:
+def test_count_dominant_vehicle_instance_pixels_uses_largest_vehicle_instance_in_box() -> None:
     raw = bytes(
         [
-            0x37,
-            0x14,
+            0x01,
+            0x02,
             10,
             255,
-            0,
-            0,
-            0,
-            255,
-            0x37,
-            0x14,
+            0x01,
+            0x02,
             10,
             255,
-            0,
-            0,
-            0,
+            0x03,
+            0x04,
+            10,
+            255,
+            0x01,
+            0x02,
+            10,
             255,
         ]
     )
 
-    assert count_instance_pixels(raw, width=2, height=2, actor_id=0x1437) == 2
+    assert count_dominant_vehicle_instance_pixels(
+        raw,
+        width=2,
+        height=2,
+        projected_box=ProjectedBox(0.0, 0.0, 2.0, 2.0, True),
+    ) == 3
+
+
+def test_dominant_vehicle_instance_count_filters_semantics_and_clips_box() -> None:
+    raw = bytes(
+        [
+            0x01, 0x02, 10, 255,
+            0x01, 0x02, 5, 255,
+            0x03, 0x04, 10, 255,
+            0x01, 0x02, 10, 255,
+        ]
+    )
+
+    assert count_dominant_vehicle_instance_pixels(
+        raw,
+        width=2,
+        height=2,
+        projected_box=ProjectedBox(-1.2, -0.1, 1.1, 2.0, True),
+    ) == 2
+
+
+@pytest.mark.parametrize(
+    "projected_box",
+    [
+        ProjectedBox(0.0, 0.0, 2.0, 2.0, False),
+        ProjectedBox(3.0, 3.0, 4.0, 4.0, True),
+    ],
+)
+def test_dominant_vehicle_instance_count_returns_zero_when_box_has_no_visible_crop(
+    projected_box: ProjectedBox,
+) -> None:
+    raw = bytes([0x01, 0x02, 10, 255] * 4)
+
+    assert count_dominant_vehicle_instance_pixels(
+        raw, width=2, height=2, projected_box=projected_box
+    ) == 0
+
+
+def test_dominant_vehicle_instance_count_validates_raw_length() -> None:
+    raw = bytes([0x01, 0x02, 10, 255] * 4)
+
     with pytest.raises(ValueError, match="raw image length"):
-        count_instance_pixels(raw[:-1], width=2, height=2, actor_id=0x1437)
+        count_dominant_vehicle_instance_pixels(
+            raw[:-1],
+            width=2,
+            height=2,
+            projected_box=ProjectedBox(0.0, 0.0, 2.0, 2.0, True),
+        )
 
 
 def valid_observation_inputs() -> dict[str, object]:

@@ -111,17 +111,51 @@ def project_bounding_box(
     )
 
 
-def count_instance_pixels(raw: bytes, *, width: int, height: int, actor_id: int) -> int:
-    """Count CARLA instance pixels whose green/blue channels encode ``actor_id``."""
+def count_dominant_vehicle_instance_pixels(
+    raw: bytes,
+    *,
+    width: int,
+    height: int,
+    projected_box: ProjectedBox,
+    vehicle_semantic_tag: int = 10,
+) -> int:
+    """Count the dominant vehicle instance inside one projected target box.
 
+    CARLA's instance color is not its Python actor ID.  This heuristic is only
+    valid for the present single-target, no-background-traffic pilot; it does
+    not identify a particular vehicle in a multi-vehicle experiment.
+    """
     expected_length = width * height * 4
     if len(raw) != expected_length:
         raise ValueError(
             f"raw image length must be {expected_length} bytes, received {len(raw)}"
         )
+    if not projected_box.in_front:
+        return 0
+
+    bounds = (
+        projected_box.x_min,
+        projected_box.y_min,
+        projected_box.x_max,
+        projected_box.y_max,
+    )
+    if not all(math.isfinite(value) for value in bounds):
+        return 0
+
+    x_min = max(0, math.floor(projected_box.x_min))
+    y_min = max(0, math.floor(projected_box.y_min))
+    x_max = min(width, math.ceil(projected_box.x_max))
+    y_max = min(height, math.ceil(projected_box.y_max))
+    if x_min >= x_max or y_min >= y_max:
+        return 0
+
     bgra = np.frombuffer(raw, dtype=np.uint8).reshape((height, width, 4))
-    decoded_ids = bgra[:, :, 1].astype(np.uint16) * 256 + bgra[:, :, 0].astype(np.uint16)
-    return int(np.count_nonzero(decoded_ids == actor_id))
+    crop = bgra[y_min:y_max, x_min:x_max]
+    vehicle_pixels = crop[crop[:, :, 2] == vehicle_semantic_tag]
+    if len(vehicle_pixels) == 0:
+        return 0
+    _, counts = np.unique(vehicle_pixels[:, (1, 0)], axis=0, return_counts=True)
+    return int(np.max(counts))
 
 
 def evaluate_observation(

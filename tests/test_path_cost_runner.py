@@ -5,14 +5,23 @@ from types import SimpleNamespace
 import pytest
 
 from src.carla_experiments.config import load_config, parse_path_cost_config
+from src.carla_experiments.metrics import build_projection_matrix
 from src.carla_experiments.path_cost_runner import (
     EpisodeSummary,
+    FrameContext,
+    _default_observation_evaluator,
     aggregate_observations,
     evaluate_target_execution,
     run_path_cost_episode,
 )
 from src.carla_experiments.runtime import OwnedActors
 from src.carla_experiments.sensors import FramePair
+from src.carla_experiments.trajectories.baselines import (
+    MotionState,
+    UavLimits,
+    Vec3,
+    look_at,
+)
 
 
 @dataclass(frozen=True)
@@ -213,6 +222,84 @@ def valid_metrics(*args, **kwargs):
         valid=True,
         invalid_reasons=(),
     )
+
+
+def test_default_evaluator_counts_visible_vehicle_without_reading_target_actor_id() -> None:
+    """Catch a regression to actor-ID matching, which CARLA instance colors do not support."""
+
+    class TargetWithoutReadableId:
+        @property
+        def id(self):
+            raise AssertionError("target.id must not be used for instance-pixel matching")
+
+        bounding_box = SimpleNamespace(
+            get_world_vertices=lambda transform: tuple(
+                Location(x, y, z)
+                for x in (10.0,)
+                for y in (-10.0, 10.0)
+                for z in (-10.0, 10.0)
+            )
+        )
+
+    pilot_config = replace(
+        config(),
+        camera=replace(config().camera, width=2, height=2, fov_deg=90.0),
+    )
+    camera_transform = Transform(Location(0.0, 0.0, 0.0), Rotation())
+    state = MotionState(
+        position=Vec3(0.0, 0.0, 0.0),
+        velocity=Vec3(0.0, 0.0, 0.0),
+        acceleration=Vec3(0.0, 0.0, 0.0),
+        gimbal=look_at(Vec3(0.0, 0.0, 0.0), Vec3(10.0, 0.0, 0.0)),
+    )
+    context = FrameContext(
+        frame=1,
+        sim_time_s=0.05,
+        target_transform=camera_transform,
+        target_speed_mps=0.0,
+        motion_state=state,
+        camera_transform=camera_transform,
+        jerk_mps3=0.0,
+        gimbal_rate_deg_s=0.0,
+    )
+    pair = FramePair(
+        frame=1,
+        rgb=SimpleNamespace(frame=1, raw_data=b"rgb"),
+        instance=SimpleNamespace(
+            frame=1,
+            raw_data=bytes(
+                [
+                    1,
+                    2,
+                    10,
+                    255,
+                    1,
+                    2,
+                    10,
+                    255,
+                    3,
+                    4,
+                    10,
+                    255,
+                    1,
+                    2,
+                    10,
+                    255,
+                ]
+            ),
+        ),
+    )
+
+    metrics = _default_observation_evaluator(
+        pair,
+        context,
+        TargetWithoutReadableId(),
+        pilot_config,
+        build_projection_matrix(width=2, height=2, fov_deg=90.0),
+        UavLimits(12.0, 4.0, 8.0, 90.0),
+    )
+
+    assert metrics.instance_pixels == 3
 
 
 def test_runner_attributes_delayed_sensor_frames_to_matching_world_context() -> None:

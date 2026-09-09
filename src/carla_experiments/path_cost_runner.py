@@ -15,7 +15,7 @@ from .config import PathCostConfig
 from .metrics import (
     ObservationMetrics,
     build_projection_matrix,
-    count_instance_pixels,
+    count_dominant_vehicle_instance_pixels,
     evaluate_observation,
     path_length,
     project_bounding_box,
@@ -180,11 +180,11 @@ def _default_observation_evaluator(
         np.asarray(context.camera_transform.get_inverse_matrix(), dtype=np.float64),
         intrinsics,
     )
-    pixels = count_instance_pixels(
+    pixels = count_dominant_vehicle_instance_pixels(
         bytes(pair.instance.raw_data),
         width=config.camera.width,
         height=config.camera.height,
-        actor_id=int(target.id),
+        projected_box=projected,
     )
     target_position = _vec3(context.target_transform.location)
     return evaluate_observation(
