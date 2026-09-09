@@ -93,4 +93,4 @@
 - [x] Run `python -m ruff check --no-cache .`.
 - [x] Run `python -m compileall -q src tests` with a writable temporary bytecode prefix.
 - [x] Run `git diff --check main..HEAD` and verify branch scope contains no SDD scratch reports.
-- [ ] Commit this plan document, request whole-branch review, and resolve Critical/Important findings.
+- [x] Commit this plan document, request whole-branch review, and resolve Critical/Important findings.
