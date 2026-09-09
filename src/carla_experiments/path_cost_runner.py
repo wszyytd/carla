@@ -185,6 +185,7 @@ def _default_observation_evaluator(
         width=config.camera.width,
         height=config.camera.height,
         projected_box=projected,
+        target_semantic_tags=target.semantic_tags,
     )
     target_position = _vec3(context.target_transform.location)
     return evaluate_observation(

@@ -49,7 +49,7 @@
 - Modify: `docs/superpowers/specs/2026-08-26-s-curve-anticipatory-observation-design.md`
 
 **Interfaces:**
-- Produces `count_dominant_vehicle_instance_pixels(raw, *, width, height, projected_box, vehicle_semantic_tag=10) -> int`.
+- Produces `count_dominant_vehicle_instance_pixels(raw, *, width, height, projected_box, target_semantic_tags) -> int`; use the target actor's semantic tag set so CARLA version-specific class numbers are not hardcoded.
 - Consumes CARLA instance-segmentation BGRA bytes and the already computed `ProjectedBox`.
 
 - [x] Add failing tests for clipping, out-of-frame/behind-camera zero, semantic tag filtering, and selecting the dominant `(G,B)` pair rather than summing different vehicles.

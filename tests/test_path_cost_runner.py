@@ -232,10 +232,15 @@ def valid_metrics(*args, **kwargs):
     )
 
 
-def test_default_evaluator_counts_visible_vehicle_without_reading_target_actor_id() -> None:
+@pytest.mark.parametrize("semantic_tag", [14, 15])
+def test_default_evaluator_counts_visible_vehicle_without_reading_target_actor_id(
+    semantic_tag,
+) -> None:
     """Catch a regression to actor-ID matching, which CARLA instance colors do not support."""
 
     class TargetWithoutReadableId:
+        semantic_tags = [semantic_tag]
+
         @property
         def id(self):
             raise AssertionError("target.id must not be used for instance-pixel matching")
@@ -279,11 +284,11 @@ def test_default_evaluator_counts_visible_vehicle_without_reading_target_actor_i
                 [
                     1,
                     2,
-                    10,
+                    semantic_tag,
                     255,
                     1,
                     2,
-                    10,
+                    semantic_tag,
                     255,
                     3,
                     4,
@@ -291,7 +296,7 @@ def test_default_evaluator_counts_visible_vehicle_without_reading_target_actor_i
                     255,
                     1,
                     2,
-                    10,
+                    semantic_tag,
                     255,
                 ]
             ),

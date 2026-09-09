@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 import numpy as np
@@ -117,13 +118,14 @@ def count_dominant_vehicle_instance_pixels(
     width: int,
     height: int,
     projected_box: ProjectedBox,
-    vehicle_semantic_tag: int = 10,
+    target_semantic_tags: Iterable[int],
 ) -> int:
     """Count the dominant vehicle instance inside one projected target box.
 
     CARLA's instance color is not its Python actor ID.  This heuristic is only
     valid for the present single-target, no-background-traffic pilot; it does
-    not identify a particular vehicle in a multi-vehicle experiment.
+    not identify a particular vehicle in a multi-vehicle experiment. Semantic
+    tags come from the target actor because class numbers vary across CARLA versions.
     """
     expected_length = width * height * 4
     if len(raw) != expected_length:
@@ -151,7 +153,7 @@ def count_dominant_vehicle_instance_pixels(
 
     bgra = np.frombuffer(raw, dtype=np.uint8).reshape((height, width, 4))
     crop = bgra[y_min:y_max, x_min:x_max]
-    vehicle_pixels = crop[crop[:, :, 2] == vehicle_semantic_tag]
+    vehicle_pixels = crop[np.isin(crop[:, :, 2], tuple(target_semantic_tags))]
     if len(vehicle_pixels) == 0:
         return 0
     _, counts = np.unique(vehicle_pixels[:, (1, 0)], axis=0, return_counts=True)

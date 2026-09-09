@@ -55,19 +55,19 @@ def test_count_dominant_vehicle_instance_pixels_uses_largest_vehicle_instance_in
         [
             0x01,
             0x02,
-            10,
+            14,
             255,
             0x01,
             0x02,
-            10,
+            14,
             255,
             0x03,
             0x04,
-            10,
+            14,
             255,
             0x01,
             0x02,
-            10,
+            14,
             255,
         ]
     )
@@ -77,16 +77,17 @@ def test_count_dominant_vehicle_instance_pixels_uses_largest_vehicle_instance_in
         width=2,
         height=2,
         projected_box=ProjectedBox(0.0, 0.0, 2.0, 2.0, True),
+        target_semantic_tags=(14,),
     ) == 3
 
 
 def test_dominant_vehicle_instance_count_filters_semantics_and_clips_box() -> None:
     raw = bytes(
         [
+            0x01, 0x02, 14, 255,
             0x01, 0x02, 10, 255,
-            0x01, 0x02, 5, 255,
-            0x03, 0x04, 10, 255,
-            0x01, 0x02, 10, 255,
+            0x03, 0x04, 14, 255,
+            0x01, 0x02, 14, 255,
         ]
     )
 
@@ -95,6 +96,7 @@ def test_dominant_vehicle_instance_count_filters_semantics_and_clips_box() -> No
         width=2,
         height=2,
         projected_box=ProjectedBox(-1.2, -0.1, 1.1, 2.0, True),
+        target_semantic_tags=(14,),
     ) == 2
 
 
@@ -108,15 +110,15 @@ def test_dominant_vehicle_instance_count_filters_semantics_and_clips_box() -> No
 def test_dominant_vehicle_instance_count_returns_zero_when_box_has_no_visible_crop(
     projected_box: ProjectedBox,
 ) -> None:
-    raw = bytes([0x01, 0x02, 10, 255] * 4)
+    raw = bytes([0x01, 0x02, 14, 255] * 4)
 
     assert count_dominant_vehicle_instance_pixels(
-        raw, width=2, height=2, projected_box=projected_box
+        raw, width=2, height=2, projected_box=projected_box, target_semantic_tags=(14,)
     ) == 0
 
 
 def test_dominant_vehicle_instance_count_validates_raw_length() -> None:
-    raw = bytes([0x01, 0x02, 10, 255] * 4)
+    raw = bytes([0x01, 0x02, 14, 255] * 4)
 
     with pytest.raises(ValueError, match="raw image length"):
         count_dominant_vehicle_instance_pixels(
@@ -124,7 +126,28 @@ def test_dominant_vehicle_instance_count_validates_raw_length() -> None:
             width=2,
             height=2,
             projected_box=ProjectedBox(0.0, 0.0, 2.0, 2.0, True),
+            target_semantic_tags=(14,),
         )
+
+
+@pytest.mark.parametrize(
+    ("tags", "expected"),
+    [((14,), 2), ((15,), 1), ((14, 15), 3), ((), 0)],
+)
+def test_instance_count_uses_target_tag_set_and_excludes_terrain(tags, expected) -> None:
+    raw = bytes(
+        [1, 2, 14, 255] * 2
+        + [1, 2, 15, 255]
+        + [1, 2, 10, 255] * 3
+    )
+
+    assert count_dominant_vehicle_instance_pixels(
+        raw,
+        width=3,
+        height=2,
+        projected_box=ProjectedBox(0.0, 0.0, 3.0, 2.0, True),
+        target_semantic_tags=tags,
+    ) == expected
 
 
 def valid_observation_inputs() -> dict[str, object]:

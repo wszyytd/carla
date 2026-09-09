@@ -173,12 +173,17 @@ def test_session_reports_cleanup_brackets_without_reordering_native_calls() -> N
     assert world.applied_settings[-1] is original
 
 
-def test_session_tick_calls_world_once_and_records_cleanup_failures() -> None:
+@pytest.mark.parametrize("reporter_fails", [False, True])
+def test_session_tick_calls_world_once_and_records_cleanup_failures(reporter_fails) -> None:
     original = Settings(False, None)
     world = FakeWorld(original)
     traffic_manager = FakeTrafficManager()
 
     with SynchronousSession(FakeClient(world, traffic_manager), config()) as session:
+        if reporter_fails:
+            session.set_progress_reporter(
+                lambda _: (_ for _ in ()).throw(RuntimeError("reporter failed"))
+            )
         assert session.tick() == 101
         assert world.tick_calls == 1
         broken = SimpleNamespace(
@@ -192,3 +197,55 @@ def test_session_tick_calls_world_once_and_records_cleanup_failures() -> None:
         (77, "stop"),
         (77, "destroy"),
     ]
+    assert [item.message for item in session.cleanup_failures] == [
+        "stop failed", "destroy failed"
+    ]
+    assert traffic_manager.synchronous_calls == [True, False]
+    assert world.applied_settings[-1] is original
+
+
+@pytest.mark.parametrize(
+    "failing_message",
+    [
+        "会话清理开始",
+        "清理：停止 actor[1] 前",
+        "清理：停止 actor[1] 后",
+        "清理：销毁 actor[2] 前",
+        "清理：销毁 actor[2] 后",
+        "清理：恢复 Traffic Manager 异步模式 前",
+        "清理：恢复 Traffic Manager 异步模式 后",
+        "清理：恢复世界设置 前",
+        "清理：恢复世界设置 后",
+        "会话清理完成",
+    ],
+)
+def test_reporter_failure_cannot_interrupt_cleanup_or_replace_body_error(
+    failing_message: str,
+) -> None:
+    original = Settings(False, None)
+    world = FakeWorld(original)
+    traffic_manager = FakeTrafficManager()
+    events: list[str] = []
+    messages: list[str] = []
+    body_error = ValueError("original body failure")
+
+    def report(message: str) -> None:
+        messages.append(message)
+        if message == failing_message:
+            raise RuntimeError("reporter failed")
+
+    with pytest.raises(ValueError) as raised:
+        with SynchronousSession(FakeClient(world, traffic_manager), config()) as session:
+            session.set_progress_reporter(report)
+            session.actors.add(FakeActor("A", events, sensor=True))
+            session.actors.add(FakeActor("B", events, sensor=True))
+            session.actors.add(FakeVehicle("C", events))
+            raise body_error
+
+    assert raised.value is body_error
+    assert failing_message in messages
+    assert messages[-1] == "会话清理完成"
+    assert events == ["stop:B", "stop:A", "destroy:C", "destroy:B", "destroy:A"]
+    assert traffic_manager.synchronous_calls == [True, False]
+    assert world.applied_settings[-1] is original
+    assert session.cleanup_failures == ()
