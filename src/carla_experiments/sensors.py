@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+import weakref
 from dataclasses import dataclass
 from typing import Any
 
@@ -29,8 +30,20 @@ class AerialSensorRig:
         self._condition = threading.Condition()
         self._rgb_frames: dict[int, Any] = {}
         self._instance_frames: dict[int, Any] = {}
-        rgb_sensor.listen(self._receive_rgb)
-        instance_sensor.listen(self._receive_instance)
+        rig_reference = weakref.ref(self)
+
+        def receive_rgb(image: Any) -> None:
+            rig = rig_reference()
+            if rig is not None:
+                rig._receive_rgb(image)
+
+        def receive_instance(image: Any) -> None:
+            rig = rig_reference()
+            if rig is not None:
+                rig._receive_instance(image)
+
+        rgb_sensor.listen(receive_rgb)
+        instance_sensor.listen(receive_instance)
 
     def _store(self, buffer: dict[int, Any], image: Any) -> None:
         with self._condition:

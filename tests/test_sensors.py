@@ -1,3 +1,5 @@
+import gc
+import weakref
 from types import SimpleNamespace
 
 import pytest
@@ -146,3 +148,17 @@ def test_rig_caps_each_unmatched_modality_buffer_at_32_frames() -> None:
     assert len(pairs) == 1
     assert pairs[0].frame == 39
     assert pairs[0].instance is instance_39
+
+
+def test_sensor_callbacks_do_not_keep_rig_alive_after_episode() -> None:
+    rgb = Sensor("rgb")
+    instance = Sensor("instance")
+    rig = AerialSensorRig(rgb, instance)
+    rig_reference = weakref.ref(rig)
+
+    del rig
+    gc.collect()
+
+    assert rig_reference() is None
+    rgb.emit(1)
+    instance.emit(1)
