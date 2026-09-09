@@ -127,6 +127,52 @@ def test_owned_actors_stop_sensors_then_destroy_everything_in_reverse_order() ->
     assert actors.destroy_all() == ()
 
 
+def test_owned_actors_reports_before_and_after_each_cleanup_call() -> None:
+    events: list[str] = []
+    messages: list[str] = []
+    actors = OwnedActors()
+    actors.add(FakeActor("A", events, sensor=True))
+    actors.add(FakeActor("B", events, sensor=True))
+    actors.add(FakeVehicle("C", events))
+
+    actors.destroy_all(progress=messages.append)
+
+    assert messages == [
+        "清理：停止 actor[1] 前",
+        "清理：停止 actor[1] 后",
+        "清理：停止 actor[0] 前",
+        "清理：停止 actor[0] 后",
+        "清理：销毁 actor[2] 前",
+        "清理：销毁 actor[2] 后",
+        "清理：销毁 actor[1] 前",
+        "清理：销毁 actor[1] 后",
+        "清理：销毁 actor[0] 前",
+        "清理：销毁 actor[0] 后",
+    ]
+    assert events == ["stop:B", "stop:A", "destroy:C", "destroy:B", "destroy:A"]
+
+
+def test_session_reports_cleanup_brackets_without_reordering_native_calls() -> None:
+    original = Settings(False, None)
+    world = FakeWorld(original)
+    traffic_manager = FakeTrafficManager()
+    messages: list[str] = []
+
+    with SynchronousSession(FakeClient(world, traffic_manager), config()) as session:
+        session.set_progress_reporter(messages.append)
+
+    assert messages == [
+        "会话清理开始",
+        "清理：恢复 Traffic Manager 异步模式 前",
+        "清理：恢复 Traffic Manager 异步模式 后",
+        "清理：恢复世界设置 前",
+        "清理：恢复世界设置 后",
+        "会话清理完成",
+    ]
+    assert traffic_manager.synchronous_calls == [True, False]
+    assert world.applied_settings[-1] is original
+
+
 def test_session_tick_calls_world_once_and_records_cleanup_failures() -> None:
     original = Settings(False, None)
     world = FakeWorld(original)

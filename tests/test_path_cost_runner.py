@@ -103,6 +103,14 @@ class FakeSession:
         return self.frame
 
 
+class ReportingFakeSession(FakeSession):
+    latest = None
+
+    def set_progress_reporter(self, progress) -> None:
+        self.progress = progress
+        ReportingFakeSession.latest = self
+
+
 def make_route(*, final_x: float = 5.0):
     count = int(final_x) + 1
     points = tuple(
@@ -374,6 +382,40 @@ def test_runner_finalizes_failed_summary_on_route_and_sensor_timeout() -> None:
     assert len(FakeArtifacts.latest.summaries) == 1
     assert FakeArtifacts.latest.summaries[0]["episode_success"] is False
     assert FakeSession.latest.exited is True
+
+
+def test_runner_reports_major_stages_and_each_hundred_measured_frames() -> None:
+    messages: list[str] = []
+
+    summary = run_path_cost_episode(
+        CARLA,
+        config(max_duration_seconds=5.05),
+        "hover",
+        clock=lambda: datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc),
+        session_factory=ReportingFakeSession,
+        route_selector=lambda *args: make_route(final_x=1000.0),
+        target_spawner=lambda *args: Target(FakeSession.latest),
+        target_configurator=lambda *args, **kwargs: None,
+        sensor_factory=lambda *args: FakeRig(deliver_frames=()),
+        artifacts_factory=FakeArtifacts,
+        observation_evaluator=valid_metrics,
+        progress=messages.append,
+    )
+
+    assert summary.measured_world_frames == 101
+    assert messages == [
+        "路线选择开始",
+        "路线已选：road=1, section=0, lane=1, start_s=0.000",
+        "目标车辆就绪",
+        "传感器就绪",
+        "预热开始：0 帧",
+        "预热完成",
+        "测量进度：100 世界帧",
+        "路线超时",
+        "工件写入开始",
+        "工件写入完成",
+    ]
+    assert ReportingFakeSession.latest.progress.__self__ is messages
 
 
 @pytest.mark.parametrize(

@@ -71,7 +71,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 3
 
     try:
-        summary = run_path_cost_episode(carla_module, config, args.policy)
+        summary = run_path_cost_episode(
+            carla_module, config, args.policy, progress=report
+        )
     except Exception as error:
         report(f"错误：实验运行失败：{type(error).__name__}: {error}")
         return 3

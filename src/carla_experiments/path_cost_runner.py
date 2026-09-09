@@ -266,6 +266,7 @@ def run_path_cost_episode(
     sensor_factory: Callable[..., Any] = spawn_paired_camera_rig,
     artifacts_factory: Callable[..., Any] = PilotArtifacts,
     observation_evaluator: Callable[..., ObservationMetrics] = _default_observation_evaluator,
+    progress: Callable[[str], None] | None = None,
 ) -> EpisodeSummary:
     """Run one synchronous Hover or Vertical Follow pilot episode."""
 
@@ -286,12 +287,23 @@ def run_path_cost_episode(
     )
 
     with session_factory(client, config) as session:
+        set_progress_reporter = getattr(session, "set_progress_reporter", None)
+        if callable(set_progress_reporter):
+            set_progress_reporter(progress)
         map_obj = session.world.get_map()
         if not map_obj.name.endswith(config.world.map):
             raise RuntimeError(
                 f"configured map {config.world.map!r} does not match current map {map_obj.name!r}"
             )
+        if progress is not None:
+            progress("路线选择开始")
         route = route_selector(map_obj, config.route)
+        if progress is not None:
+            progress(
+                "路线已选："
+                f"road={route.road_id}, section={route.section_id}, "
+                f"lane={route.lane_id}, start_s={route.start_s:.3f}"
+            )
         target = target_spawner(session.world, route, config.target, session.actors)
         target_configurator(
             target,
@@ -300,6 +312,8 @@ def run_path_cost_episode(
             traffic_manager_port=config.traffic_manager.port,
             target_speed_mps=config.route.target_speed_mps,
         )
+        if progress is not None:
+            progress("目标车辆就绪")
 
         route_locations = tuple(_vec3(item.transform.location) for item in route.waypoints)
         target_start = route_locations[0]
@@ -321,6 +335,8 @@ def run_path_cost_episode(
             camera_transform,
             session.actors,
         )
+        if progress is not None:
+            progress("传感器就绪")
         artifacts = artifacts_factory(
             config.output.root,
             experiment_id,
@@ -336,9 +352,13 @@ def run_path_cost_episode(
             },
         )
 
+        if progress is not None:
+            progress(f"预热开始：{config.output.warmup_frames} 帧")
         for _ in range(config.output.warmup_frames):
             warmup_frame = session.tick()
             rig.drain_ready(warmup_frame)
+        if progress is not None:
+            progress("预热完成")
 
         initial_target = _vec3(target.get_transform().location)
         target_positions = [initial_target]
@@ -394,6 +414,8 @@ def run_path_cost_episode(
             rig.set_transform(camera_transform)
             frame = session.tick()
             measured_world_frames += 1
+            if progress is not None and measured_world_frames % 100 == 0:
+                progress(f"测量进度：{measured_world_frames} 世界帧")
 
             target_transform = target.get_transform()
             target_position = _vec3(target_transform.location)
@@ -433,6 +455,9 @@ def run_path_cost_episode(
             )
             if completed_route:
                 break
+
+        if progress is not None:
+            progress("路线完成" if completed_route else "路线超时")
 
         if measured_world_frames:
             last_frame = max(contexts, default=0)
@@ -487,5 +512,9 @@ def run_path_cost_episode(
             measured_world_frames=measured_world_frames,
             measured_sensor_frames=len(valid_flags),
         )
+        if progress is not None:
+            progress("工件写入开始")
         artifacts.finalize(asdict(summary))
+        if progress is not None:
+            progress("工件写入完成")
         return summary

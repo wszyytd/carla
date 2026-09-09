@@ -46,7 +46,7 @@ def test_main_prints_complete_success_summary(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(path_cost.importlib, "import_module", lambda name: object())
-    monkeypatch.setattr(path_cost, "run_path_cost_episode", lambda *args: summary())
+    monkeypatch.setattr(path_cost, "run_path_cost_episode", lambda *args, **kwargs: summary())
 
     exit_code = path_cost.main(
         ["--config", "cfg/experiments/path_cost_pilot.yaml", "--policy", "hover"]
@@ -113,7 +113,7 @@ def test_runner_timeout_returns_three_with_type_and_message(
     monkeypatch.setattr(
         path_cost,
         "run_path_cost_episode",
-        lambda *args: (_ for _ in ()).throw(TimeoutError("sensor stalled")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError("sensor stalled")),
     )
 
     exit_code = path_cost.main(
@@ -130,7 +130,9 @@ def test_completed_but_rejected_experiment_returns_five_without_error(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(path_cost.importlib, "import_module", lambda name: object())
-    monkeypatch.setattr(path_cost, "run_path_cost_episode", lambda *args: summary(success=False))
+    monkeypatch.setattr(
+        path_cost, "run_path_cost_episode", lambda *args, **kwargs: summary(success=False)
+    )
 
     exit_code = path_cost.main(
         ["--config", "cfg/experiments/path_cost_pilot.yaml", "--policy", "hover"]
@@ -140,3 +142,19 @@ def test_completed_but_rejected_experiment_returns_five_without_error(
     assert exit_code == 5
     assert "实验判定：未通过" in output
     assert "错误" not in output
+
+
+def test_main_passes_its_progress_reporter_to_the_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(path_cost.importlib, "import_module", lambda name: object())
+    received = {}
+
+    def runner(*args, **kwargs):
+        received.update(kwargs)
+        return summary()
+
+    monkeypatch.setattr(path_cost, "run_path_cost_episode", runner)
+
+    assert path_cost.main(["--policy", "hover"]) == 0
+    assert isinstance(received["progress"], path_cost.ProgressReporter)
