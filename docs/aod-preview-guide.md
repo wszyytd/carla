@@ -4,19 +4,19 @@
 
 ## 1. 同步代码与检查连接
 
-本机代码在分支 `codex/aod-preview`。首次同步到服务器：
+采集代码已合并到 `main`。在服务器同步主分支：
 
 ```bash
 cd /mnt/fast18/sunbo/carla
 git status --short
-git fetch origin
-git switch --track origin/codex/aod-preview
+git switch main
+git pull --ff-only origin main
 conda activate carla10
 python -m pip install -r requirements.txt
 python -m src.smoke --config cfg/simulator.yaml
 ```
 
-如果这个分支已经存在，使用 `git switch codex/aod-preview` 和 `git pull --ff-only origin codex/aod-preview`。若切换提示本地文件会被覆盖，先保存自己的修改，不使用强制覆盖。
+开发分支 `codex/aod-preview` 已合并，日常同步使用 `main`。若切换提示本地文件会被覆盖，先保存自己的修改，不使用强制覆盖。
 
 保持 CARLA 运行，启动方式见 [服务器环境](setup-server.md)。采集时只运行这一个 tick 主控，不同时运行动态交通、路径代价 Pilot 或其他改变世界的客户端。需要一个没有车辆和行人的空闲世界；采集器不会删除别人创建的对象，也不会自动加载地图。
 
