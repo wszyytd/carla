@@ -44,7 +44,7 @@ def _inventory(world, config, versions):
     vehicles = []
     for bp in sorted(world.get_blueprint_library().filter("vehicle.*"), key=lambda b: b.id):
         wheels = (
-            int(str(bp.get_attribute("number_of_wheels")))
+            bp.get_attribute("number_of_wheels").as_int()
             if bp.has_attribute("number_of_wheels")
             else 0
         )

@@ -34,6 +34,17 @@ class Transform:
         return matrix.tolist()
 
 
+class ActorAttribute:
+    def __init__(self, name, value):
+        self.name, self.value = name, value
+
+    def as_int(self):
+        return int(self.value)
+
+    def __str__(self):
+        return f"ActorAttribute(id={self.name},type=int,value={self.value}(const))"
+
+
 class Blueprint:
     def __init__(self, name):
         self.id = name
@@ -43,7 +54,7 @@ class Blueprint:
         return name in self.attributes
 
     def get_attribute(self, name):
-        return self.attributes[name]
+        return ActorAttribute(name, self.attributes[name])
 
     def set_attribute(self, name, value):
         self.attributes[name] = value
@@ -352,3 +363,16 @@ def test_pair_timestamp_tolerance_does_not_expand_with_simulation_age():
     rgb = NS(frame=10, timestamp=1000000.0, transform=pose)
     instance = NS(frame=10, timestamp=1000000.0001, transform=pose)
     assert not matches_view(NS(frame=10, rgb=rgb, instance=instance), pose, min_frame=9)
+
+
+def test_inventory_filters_native_attributes_and_missing_wheel_counts():
+    world = World()
+    car = Blueprint("vehicle.car")
+    bike = Blueprint("vehicle.bike")
+    bike.attributes["number_of_wheels"] = "2"
+    unknown = Blueprint("vehicle.unknown")
+    unknown.attributes.clear()
+    world.get_blueprint_library = lambda: NS(filter=lambda pattern: [unknown, bike, car])
+    result = api().inventory(fake_carla(world), config().client)
+    assert result["vehicles"] == [{"id": "vehicle.car", "number_of_wheels": 4}]
+    assert not world.applied and world.frame == 0
