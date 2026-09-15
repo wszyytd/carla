@@ -61,7 +61,8 @@ class OwnedActors:
             if callable(destroy):
                 _report_cleanup(progress, f"清理：销毁 actor[{index}] 前")
                 try:
-                    destroy()
+                    if destroy() is False:
+                        raise RuntimeError("actor.destroy() returned False")
                 except Exception as exc:  # cleanup must continue
                     failures.append(
                         CleanupFailure(getattr(actor, "id", None), "destroy", str(exc))
