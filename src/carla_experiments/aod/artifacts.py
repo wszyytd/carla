@@ -11,6 +11,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from .preview import crop_target, decode_rgb, pose_values
+from .scale import measure_scale, render_crop_sheet, scale_report
 
 
 def write_json(path, value):
@@ -71,10 +72,11 @@ def save_images(root, node, pair, box):
         crop_box_valid=crop.box_valid,
         rgb_mean=float(np.mean(rgb)),
         image_size=[rgb.shape[1], rgb.shape[0]],
+        scale=measure_scale(box, width=rgb.shape[1], height=rgb.shape[0]),
     )
 
 
-def contact_sheets(root, nodes, class_count):
+def contact_sheets(root, nodes, class_count, heights=(20, 30, 40)):
     for index in range(class_count):
         sheet = Image.new("RGB", (8 * 240, 3 * 165), "#202020")
         draw = ImageDraw.Draw(sheet)
@@ -91,14 +93,27 @@ def contact_sheets(root, nodes, class_count):
                         thumbnail = source.copy()
                     thumbnail.thumbnail((236, 136))
                     sheet.paste(thumbnail, (x, y + 24))
-                draw.text((x + 4, y + 4), f"H{20 + row * 10} P{col + 1}: {status}", fill="white")
+                draw.text((x + 4, y + 4), f"H{heights[row]:g} P{col + 1}: {status}", fill="white")
         sheet.save(Path(root) / f"contact_sheet_{index:02d}.png")
 
 
 def finish_artifacts(root, nodes, summary):
     """Also runs for failed captures; incomplete status remains explicit."""
+    from .config import parse_preview_config
+
+    config = parse_preview_config(
+        json.loads((Path(root) / "config.json").read_text(encoding="utf-8"))
+    )
+    report = scale_report(nodes, config)
+    write_json(Path(root) / "scale_report.json", report)
+    summary["scale_overall"] = report["overall"]
+    summary["scale_report"] = "scale_report.json"
     write_json(Path(root) / "summary.json", summary)
-    contact_sheets(root, nodes, summary["class_count"])
+    contact_sheets(root, nodes, summary["class_count"], config.heights_m)
+    for index in range(summary["class_count"]):
+        render_crop_sheet(root, nodes, index, config.heights_m).save(
+            Path(root) / f"crop_sheet_{index:02d}.png"
+        )
     files = sorted(p for p in Path(root).rglob("*") if p.is_file() and p.name != "checksums.json")
     write_json(
         Path(root) / "checksums.json", {p.relative_to(root).as_posix(): digest(p) for p in files}
@@ -111,6 +126,9 @@ def check_artifacts(root):
         summary = json.loads((root / "summary.json").read_text(encoding="utf-8"))
         hashes = json.loads((root / "checksums.json").read_text(encoding="utf-8"))
         mandatory = {"summary.json", "nodes.jsonl", "config.json", "metadata.json"}
+        if "scale_report" in summary:
+            mandatory.add("scale_report.json")
+            mandatory.update(f"crop_sheet_{i:02d}.png" for i in range(summary["class_count"]))
         if not mandatory <= hashes.keys():
             raise ValueError("missing required manifest entries")
         for name, expected in hashes.items():

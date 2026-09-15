@@ -24,18 +24,26 @@ class View:
     roll: float = 0.0
 
 
-def preview_views(center: tuple[float, float, float], *, ground_z: float) -> tuple[View, ...]:
-    offsets = ((10, 0), (-10, 0), (0, 10), (0, -10), (10, 10), (10, -10), (-10, 10), (-10, -10))
+def preview_views(
+    center: tuple[float, float, float],
+    *,
+    ground_z: float,
+    heights_m=(20, 30, 40),
+    horizontal_offset_m=10,
+) -> tuple[View, ...]:
+    directions = ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1))
+    offsets = [(x * horizontal_offset_m, y * horizontal_offset_m) for x, y in directions]
     views = []
     cx, cy, cz = center
     if not all(math.isfinite(v) for v in (*center, ground_z)):
         raise ValueError("view coordinates must be finite")
-    for row, height in enumerate((20, 30, 40)):
+    for row, height in enumerate(heights_m):
         for column, (dx, dy) in enumerate(offsets):
             x, y, z = cx + dx, cy + dy, ground_z + height
             pitch = math.degrees(math.atan2(cz - z, math.hypot(dx, dy)))
             yaw = math.degrees(math.atan2(-dy, -dx))
-            views.append(View(f"h{height}_p{column + 1}", row, column, x, y, z, pitch, yaw))
+            label = str(height).removesuffix(".0")
+            views.append(View(f"h{label}_p{column + 1}", row, column, x, y, z, pitch, yaw))
     return tuple(views)
 
 

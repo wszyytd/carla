@@ -192,7 +192,12 @@ def _capture_class(
         target.set_simulate_physics(False)
         world.tick(config.client.timeout_seconds)
         frozen = target.get_transform()
-        views = preview_views(config.center, ground_z=config.ground_z)
+        views = preview_views(
+            config.center,
+            ground_z=config.ground_z,
+            heights_m=config.heights_m,
+            horizontal_offset_m=config.horizontal_offset_m,
+        )
         first = views[0]
         rig = spawn_paired_camera_rig(
             world,

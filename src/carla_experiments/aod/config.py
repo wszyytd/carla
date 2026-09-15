@@ -47,6 +47,8 @@ class PreviewConfig:
     max_frame_ticks: int
     timeout_seconds: float
     clearance_m: float
+    heights_m: tuple[float, ...]
+    horizontal_offset_m: float
     resolved: dict[str, Any]
 
 
@@ -81,6 +83,15 @@ def parse_preview_config(raw: Mapping[str, Any]) -> PreviewConfig:
             or len(ids) != len(set(ids))
         ):
             raise ValueError("scene.blueprint_ids must be unique vehicle blueprint IDs")
+        grid = raw.get("view_grid", {"heights_m": [20, 30, 40], "horizontal_offset_m": 10})
+        if not isinstance(grid, Mapping):
+            raise ValueError("view_grid must be a mapping")
+        heights = _vector(grid["heights_m"], "view heights", 3)
+        if not 0 < heights[0] < heights[1] < heights[2] <= 1000:
+            raise ValueError("view heights must be positive, increasing and at most 1000 m")
+        offset = _number(grid["horizontal_offset_m"], "horizontal offset", 0.01, 1000)
+        resolved = copy.deepcopy(dict(raw))
+        resolved["view_grid"] = {"heights_m": list(heights), "horizontal_offset_m": offset}
         return PreviewConfig(
             client,
             map_name,
@@ -95,7 +106,9 @@ def parse_preview_config(raw: Mapping[str, Any]) -> PreviewConfig:
             _integer(capture["max_frame_ticks"], "maximum frame ticks", 1, 10000),
             _number(capture["timeout_seconds"], "capture timeout", 0.01, 600),
             _number(capture["clearance_m"], "clearance", 0, 100),
-            copy.deepcopy(dict(raw)),
+            heights,
+            offset,
+            resolved,
         )
     except (KeyError, TypeError) as error:
         raise ValueError(f"missing or malformed preview field: {error}") from error
@@ -107,6 +120,8 @@ def prepare_config(
     spawn_index: int,
     blueprint_ids: Sequence[str] | None = None,
     ground_z: float | None = None,
+    heights_m: Sequence[float] = (60, 100, 140),
+    horizontal_offset_m: float = 60,
 ) -> dict[str, Any]:
     if inventory.get("schema_version") != 1:
         raise ValueError("unsupported inventory schema")
@@ -133,6 +148,7 @@ def prepare_config(
                 "observation_center": [pose[0], pose[1], ground + 1.0],
                 "blueprint_ids": selected,
             },
+            "view_grid": {"heights_m": list(heights_m), "horizontal_offset_m": horizontal_offset_m},
             "capture": {
                 "warmup_ticks": 6,
                 "settle_ticks": 40,

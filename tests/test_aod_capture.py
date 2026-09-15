@@ -214,6 +214,7 @@ def config():
         "vehicles": [{"id": "vehicle.a", "number_of_wheels": 4}],
     }
     raw = prepare_config(inv, spawn_index=0)
+    raw["view_grid"] = {"heights_m": [20, 30, 40], "horizontal_offset_m": 10}
     raw["camera"].update(width=32, height=24)
     raw["capture"].update(warmup_ticks=1, settle_ticks=2)
     return parse_preview_config(raw)
