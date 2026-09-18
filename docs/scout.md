@@ -39,3 +39,31 @@ No-rendering mode must be disabled for RGB capture.
 
 Local unit tests cover displacement and pose matching. Actual CARLA rendering
 must be verified on the server.
+
+## Automatic batch scouting
+
+```bash
+python -m src.scout --auto
+```
+
+Default: up to 12 spatially spread road spawn positions, 40 m above each spawn,
+pitch -45 degrees, world yaw 0/90/180/270. This produces up to 48 images then exits.
+It reuses the interactive capture checks for fresh frames at the requested pose.
+
+```bash
+python -m src.scout --auto --locations 20 --heights 30 60 --width 1280 --height 720
+```
+
+This produces up to 160 images. Add `--tick` only for an already synchronous
+world with no other tick client. The output folder contains numbered PNG/JSON
+pairs, `plan.json`, `summary.json`, and `overview_01.jpg` etc. (24 images per page).
+Use the image number to locate its JSON, then use interactive `load PATH.json`
+to return to that position. Heights are relative to road spawn elevation, not
+measured terrain clearance. Sampling covers road positions; it does not guarantee
+park coverage, collision-free poses, or interesting occlusion. Images from roofs,
+bridges, or streaming delays need visual screening. This batch is for selecting
+regions, not a physically flown trajectory or a finalized training dataset.
+
+Timeouts are recorded and skipped. Three initial failures abort the batch; any
+failed view makes the completed batch exit nonzero. Ctrl+C preserves already
+saved images and generates an overview of them during cleanup.

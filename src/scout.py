@@ -77,7 +77,23 @@ def main():
         action="store_true",
         help="Drive an already synchronous world; no other tick client allowed",
     )
+    parser.add_argument("--auto", action="store_true", help="Batch scout then exit")
+    parser.add_argument("--locations", type=int, default=12)
+    parser.add_argument(
+        "--heights", type=float, nargs="+", default=[40], help="Heights above road spawn, meters"
+    )
+    parser.add_argument("--pitch", type=float, default=-45)
     args = parser.parse_args()
+    if args.auto:
+        from .scout_batch import build_views, make_overviews
+
+        if (
+            args.locations < 1
+            or any(not math.isfinite(h) or h <= 0 for h in args.heights)
+            or not math.isfinite(args.pitch)
+            or not -90 <= args.pitch <= 0
+        ):
+            parser.error("Invalid locations, heights, or pitch")
     if (
         args.width <= 0
         or args.height <= 0
@@ -106,6 +122,11 @@ def main():
     output.mkdir(parents=True, exist_ok=False)
     map_name = world.get_map().name
     spawns = world.get_map().get_spawn_points()
+    views = build_views(spawns, args.locations, args.heights, args.pitch) if args.auto else []
+    if args.auto:
+        (output / "plan.json").write_text(
+            json.dumps({"map": map_name, "views": views}, indent=2), encoding="utf-8"
+        )
     bp = world.get_blueprint_library().find("sensor.camera.rgb")
     for key, value in {
         "image_size_x": args.width,
@@ -174,6 +195,37 @@ def main():
         sensor = world.spawn_actor(bp, original)
         sensor.listen(receive)
         print(f"Map: {map_name}\nOutput: {output.resolve()}\n{HELP}")
+        if args.auto:
+            failures = []
+            completed = 0
+            try:
+                for number, view in enumerate(views, 1):
+                    pose = view["pose"][:]
+                    print(f"[{number}/{len(views)}] spawn={view['spawn_index']}", flush=True)
+                    try:
+                        capture(f"auto view={number} spawn={view['spawn_index']}")
+                        completed += 1
+                    except TimeoutError as exc:
+                        failures.append({"view": number, "error": str(exc)})
+                        print(f"Skipped: {exc}", flush=True)
+                        if len(failures) >= 3 and completed == 0:
+                            raise RuntimeError(
+                                "Three captures failed; check CARLA rendering"
+                            ) from exc
+            finally:
+                (output / "summary.json").write_text(
+                    json.dumps(
+                        {"planned": len(views), "completed": completed, "failures": failures},
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+                for overview in make_overviews(output):
+                    print(f"Overview: {overview}")
+            print(f"Finished: {completed}/{len(views)} images saved to {output}")
+            if failures:
+                raise RuntimeError("Batch incomplete; see summary.json")
+            return
         capture("start")
         while True:
             try:
