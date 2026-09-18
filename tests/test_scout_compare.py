@@ -141,7 +141,8 @@ def test_batch_capture_outputs_real_file_mapping_and_restores_camera(tmp_path, m
         def destroy(self):
             self.destroyed = True
 
-    spectator, sensor = Actor(), Actor()
+    spectator = Actor()
+    sensors = {}
     initial = spectator.pose
     frame = 0
 
@@ -150,34 +151,56 @@ def test_batch_capture_outputs_real_file_mapping_and_restores_camera(tmp_path, m
         if mode == "interrupt":
             raise KeyboardInterrupt
         frame += 10
-        sensor.callback(
-            NS(
-                frame=frame,
-                timestamp=frame * 0.05,
-                transform=initial if mode == "timeout" else sensor.pose,
-                width=1280,
-                height=720,
-                save_to_disk=lambda path: Image.new("RGB", (16, 9)).save(path),
+        for name, sensor in sensors.items():
+            raw = (
+                bytes([5, 2, 14, 255]) * (16 * 8)
+                if name.endswith("instance_segmentation")
+                else bytes([100] * 4) * (16 * 8)
             )
-        )
+            sensor.callback(
+                NS(
+                    frame=frame,
+                    timestamp=frame * 0.05,
+                    transform=initial if mode == "timeout" else sensor.pose,
+                    width=16,
+                    height=8,
+                    raw_data=raw,
+                    save_to_disk=lambda path: Image.new("RGB", (16, 8), (100, 100, 100)).save(path),
+                )
+            )
+
+    def spawn(bp, pose):
+        sensor = Actor()
+        sensors[bp.id] = sensor
+        return sensor
 
     world = NS(
         get_settings=lambda: NS(no_rendering_mode=False, synchronous_mode=False),
         get_map=lambda: NS(name=record()["map"], get_spawn_points=lambda: []),
         get_spectator=lambda: spectator,
-        get_blueprint_library=lambda: NS(find=lambda _: NS(set_attribute=lambda k, v: None)),
+        get_blueprint_library=lambda: NS(
+            find=lambda name: NS(
+                id=name, has_attribute=lambda _: True, set_attribute=lambda k, v: None
+            )
+        ),
         get_snapshot=lambda: NS(frame=frame),
-        spawn_actor=lambda bp, pose: sensor,
+        spawn_actor=spawn,
     )
     client = NS(set_timeout=lambda _: None, get_world=lambda: world)
     monkeypatch.setitem(
         sys.modules,
         "carla",
-        NS(Client=lambda host, port: client, Transform=transform, Location=NS, Rotation=NS),
+        NS(
+            Client=lambda host, port: client,
+            Transform=transform,
+            Location=NS,
+            Rotation=NS,
+            CityObjectLabel=NS(Car=14),
+        ),
     )
     monkeypatch.setattr(scout.time, "sleep", advance)
     source = tmp_path / "source.json"
-    source.write_text(json.dumps(record()), encoding="utf-8")
+    source.write_text(json.dumps({**record(), "width": 16, "height": 8}), encoding="utf-8")
     monkeypatch.setattr(
         sys, "argv", ["scout", "--compare-from", str(source), "--output", str(tmp_path / "output")]
     )
@@ -194,7 +217,8 @@ def test_batch_capture_outputs_real_file_mapping_and_restores_camera(tmp_path, m
     (summary_path,) = (tmp_path / "output").glob("*/summary.json")
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     assert spectator.pose is initial
-    assert sensor.stopped and sensor.destroyed
+    assert len(sensors) == 3
+    assert all(sensor.stopped and sensor.destroyed for sensor in sensors.values())
     assert (summary_path.parent / "comparison.html").exists()
     if mode != "ok":
         assert summary["complete"] is False
@@ -211,5 +235,16 @@ def test_batch_capture_outputs_real_file_mapping_and_restores_camera(tmp_path, m
     assert metadata["comparison"]["route"] == "down"
     assert metadata["comparison"]["path_length_m"] == 20
     assert spectator.pose is initial
-    assert sensor.stopped and sensor.destroyed
+    assert len(sensors) == 3
+    assert all(sensor.stopped and sensor.destroyed for sensor in sensors.values())
     assert (summary_path.parent / "comparison.html").exists()
+
+    assert set(metadata["sensor_frames"]) == {"rgb", "depth", "instance"}
+    assert len(set(metadata["sensor_frames"].values())) == 1
+    assert metadata["capture_quality"]["elapsed_sim_seconds"] >= 2
+    measurement = metadata["measurements"]
+    assert (summary_path.parent / measurement["depth_m"]).exists()
+    assert (summary_path.parent / measurement["instance_raw"]).exists()
+    assert measurement["visible_vehicle_instance_count"] == 1
+    assert measurement["new_vehicle_instance_count"] == 0
+    assert summary["quality_passed"] is True

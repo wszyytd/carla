@@ -132,6 +132,8 @@ def write_comparison_report(output, views, results):
     for number, view in enumerate(views, 1):
         result = by_view.get(number, {"status": "not_run"})
         image_name = result.get("image", "")
+        measurements = result.get("measurements", {})
+        capture_quality = result.get("capture_quality", {})
         row = {
             "view": number,
             "route": view["route"],
@@ -142,6 +144,16 @@ def write_comparison_report(output, views, results):
             "image": image_name,
             "error": result.get("error", ""),
             **dict(zip(("x", "y", "z", "pitch", "yaw", "roll"), view["pose"], strict=True)),
+            "visible_vehicle_instance_count": measurements.get(
+                "visible_vehicle_instance_count", ""
+            ),
+            "new_vehicle_instance_count": measurements.get("new_vehicle_instance_count", ""),
+            "cumulative_vehicle_instance_count": measurements.get(
+                "cumulative_vehicle_instance_count", ""
+            ),
+            "mean_rgb": str(capture_quality.get("mean_rgb", "")),
+            "depth_m": measurements.get("depth_m", ""),
+            "instance_raw": measurements.get("instance_raw", ""),
             "new_target_count": "",
             "new_visible_ground_m2": "",
             "notes": "",
@@ -157,11 +169,23 @@ def write_comparison_report(output, views, results):
             if image_name
             else '<div class="missing">No image</div>'
         )
+        links = ""
+        if measurements:
+            links = (
+                f'<p><a href="{escape(measurements["depth_preview"], quote=True)}">深度预览</a> · '
+                f'<a href="{escape(measurements["instance_raw"], quote=True)}">实例原图</a></p>'
+                f"<p>车辆类实例：{measurements['visible_vehicle_instance_count']}；"
+                f"本步新增实例：{measurements['new_vehicle_instance_count']}；"
+                f"本路线累计：{measurements['cumulative_vehicle_instance_count']}</p>"
+            )
+        if capture_quality:
+            mean_label = str([round(v, 1) for v in capture_quality["mean_rgb"]])
+            links += f"<p>平均 RGB：{escape(mean_label)}</p>"
         cards.append(
             f"<article><h2>{escape(label)}</h2>{picture}"
             f"<p>{escape(view['action'])} | {escape(result['status'])} "
             f"{escape(result.get('error', ''))}</p>"
-            f"<small>pose: {escape(str(view['pose']))}</small></article>"
+            f"{links}<small>pose: {escape(str(view['pose']))}</small></article>"
         )
     with (output / "comparison.csv").open("w", encoding="utf-8-sig", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=list(rows[0]) if rows else ["view"])
@@ -183,9 +207,12 @@ p{line-height:1.6}small{color:#555}@media(max-width:850px){main{grid-template-co
 相机直接设置位置，不检查碰撞，不生成连续视频，不重置场景中的动态物体。</p>
 <p>起点画面是停止对照。比较中途新露出的地面与车辆，不只比较终点。
 相同终点的组合路线在静态场景中应得到近似相同画面；中途观察可能不同。
-发现数和新增可见面积须人工核查或后续加入测量，CSV 中留空。</p>
+自动统计的是车辆语义类别的分割实例编号，编号不等于 Python Actor ID，
+也不保证一个实例就是一辆完整车辆；首次起点的“新增实例”为 0，累计数含起点。
+路线前序缺图时，新增及累计实例统计记为 null/None，不能当成 0。
+真实目标发现数和新增可见面积仍留空，尚未限定搜索区域。</p>
 <p><a href="comparison.csv">下载记录表</a> · <a href="plan.json">采集计划</a> ·
-<a href="summary.json">运行状态</a></p><main>"""
+<a href="summary.json">运行状态</a> · <a href="quality.json">重复位姿亮度检查</a></p><main>"""
     (output / "comparison.html").write_text(
         html + "".join(cards) + "</main></html>", encoding="utf-8"
     )

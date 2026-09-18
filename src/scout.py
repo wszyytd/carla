@@ -3,11 +3,18 @@
 import argparse
 import json
 import math
-import threading
 import time
-from collections import deque
+import weakref
 from datetime import datetime
 from pathlib import Path
+
+from .scout_quality import (
+    FrameInbox,
+    InstanceHistory,
+    StabilityGate,
+    repeatability_report,
+    save_measurements,
+)
 
 
 def values(t):
@@ -88,7 +95,33 @@ def main():
     parser.add_argument(
         "--dry-run", action="store_true", help="Write comparison plan without CARLA"
     )
+    parser.add_argument("--rgb-only", action="store_true", help="Skip depth and instance sensors")
+    parser.add_argument("--exposure-mode", choices=("manual", "histogram"), default="manual")
+    parser.add_argument("--exposure-compensation", type=float, default=0.0)
+    parser.add_argument("--warmup-seconds", type=float, default=2.0)
+    parser.add_argument("--stability-threshold", type=float, default=1.0)
     args = parser.parse_args()
+    if (
+        not math.isfinite(args.warmup_seconds)
+        or args.warmup_seconds < 0
+        or not math.isfinite(args.stability_threshold)
+        or args.stability_threshold <= 0
+        or not math.isfinite(args.exposure_compensation)
+        or args.timeout <= args.warmup_seconds + 1
+    ):
+        parser.error("Invalid quality settings; timeout must exceed warmup by more than 1 second")
+    measure = args.compare_from is not None and not args.rgb_only
+    quality_settings = {
+        "exposure_mode": args.exposure_mode,
+        "exposure_compensation": args.exposure_compensation,
+        "shutter_speed": 200,
+        "iso": 100,
+        "fstop": 2.8,
+        "motion_blur_intensity": 0,
+        "warmup_seconds": args.warmup_seconds,
+        "stability_threshold": args.stability_threshold,
+    }
+
     source = None
     views = []
     if args.auto and args.compare_from:
@@ -134,6 +167,8 @@ def main():
             "step_m": args.step_m,
             "camera_only_no_collision_check": True,
             "reset_scope": "camera_only",
+            "quality_settings": quality_settings,
+            "measurements": measure,
             "views": views,
         }
 
@@ -175,22 +210,37 @@ def main():
         (output / "plan.json").write_text(
             json.dumps({"map": map_name, "views": views}, indent=2), encoding="utf-8"
         )
-    bp = world.get_blueprint_library().find("sensor.camera.rgb")
-    for key, value in {
-        "image_size_x": args.width,
-        "image_size_y": args.height,
-        "fov": args.fov,
-        "sensor_tick": 0,
-    }.items():
-        bp.set_attribute(key, str(value))
-    images = deque(maxlen=32)
-    lock = threading.Lock()
-    sensor = None
+    channels = {"rgb": "sensor.camera.rgb"}
+    if measure:
+        channels.update(depth="sensor.camera.depth", instance="sensor.camera.instance_segmentation")
+    inbox = FrameInbox(channels)
+    sensors = {}
     index = 0
-
-    def receive(image):
-        with lock:
-            images.append(image)
+    last_capture = {}
+    instance_history = InstanceHistory()
+    vehicle_tags = {}
+    if measure:
+        for name in ("Vehicles", "Car", "Truck", "Bus", "Train", "Motorcycle", "Bicycle"):
+            label = getattr(carla.CityObjectLabel, name, None)
+            if label is not None:
+                vehicle_tags[name] = int(label)
+        if not vehicle_tags:
+            raise RuntimeError(
+                "No supported vehicle semantic labels; use --rgb-only for RGB capture"
+            )
+    (output / "capture_settings.json").write_text(
+        json.dumps(
+            {
+                "quality_settings": quality_settings,
+                "vehicle_semantic_tags": vehicle_tags,
+                "channels": list(channels),
+                "map": map_name,
+                "instance_identity": "semantic:green:blue, NOT Python actor ID",
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 
     def transform(p):
         return carla.Transform(
@@ -198,28 +248,40 @@ def main():
         )
 
     def capture(command, view=None):
-        nonlocal index
+        nonlocal index, last_capture
         target = transform(pose)
-        sensor.set_transform(target)
+        inbox.clear()
+        for sensor in sensors.values():
+            sensor.set_transform(target)
         spectator.set_transform(target)
-        # Discard old frames, then demand a post-move frame at the actual requested pose.
         min_frame = world.get_snapshot().frame + 5
         deadline = time.monotonic() + args.timeout
-        image = None
+        gate = StabilityGate(args.warmup_seconds, args.stability_threshold)
+        image, accepted = None, None
         while time.monotonic() < deadline:
             if args.tick:
                 world.tick()
             time.sleep(0.05)
-            with lock:
-                candidates = list(images)
-            for candidate in reversed(candidates):
-                if candidate.frame >= min_frame and matches(candidate.transform, pose):
-                    image = candidate
+            for bundle in inbox.ready(min_frame, lambda t: matches(t, pose)):
+                dimensions = {(im.width, im.height) for im in bundle.values()}
+                if dimensions != {(args.width, args.height)}:
+                    raise RuntimeError("Sensor image dimensions differ from the configured camera")
+                if (
+                    max(im.timestamp for im in bundle.values())
+                    - min(im.timestamp for im in bundle.values())
+                    > 1e-4
+                ):
+                    raise RuntimeError("Sensor timestamps differ despite a common frame ID")
+                if gate.add(bundle["rgb"]):
+                    image, accepted = bundle["rgb"], bundle
                     break
             if image is not None:
                 break
         if image is None:
-            raise TimeoutError("No fresh RGB frame at requested pose; check server/tick owner.")
+            raise TimeoutError(
+                "No stable, aligned camera frame at requested pose. "
+                f"Last quality: {gate.diagnostics}"
+            )
         index += 1
         stem = output / f"{index:04d}"
         image.save_to_disk(str(stem.with_suffix(".png")))
@@ -235,17 +297,67 @@ def main():
             "fov": args.fov,
             "command": command,
             "camera_only_no_collision_check": True,
+            "capture_quality": gate.diagnostics,
+            "sensor_frames": {name: im.frame for name, im in accepted.items()},
+            "quality_settings": quality_settings,
         }
+        if measure:
+            metadata["measurements"] = save_measurements(
+                output, stem.name, accepted, list(vehicle_tags.values())
+            )
+            identities = {item["key"] for item in metadata["measurements"]["vehicle_instances"]}
+            route = view["route"] if view else "interactive"
+            metadata["measurements"].update(
+                instance_history.update(route, view["step"] if view else 0, identities)
+            )
         if view is not None:
             metadata["comparison"] = view
         stem.with_suffix(".json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
         print(f"Saved {stem}.png | pose: " + " ".join(f"{v:.2f}" for v in metadata["pose"]))
 
+        last_capture = {
+            "capture_quality": gate.diagnostics,
+            "measurements": metadata.get("measurements", {}),
+        }
         return stem.with_suffix(".png").name
 
     try:
-        sensor = world.spawn_actor(bp, original)
-        sensor.listen(receive)
+        library = world.get_blueprint_library()
+        inbox_reference = weakref.ref(inbox)
+        for name, blueprint_id in channels.items():
+            bp = library.find(blueprint_id)
+            attributes = {
+                "image_size_x": args.width,
+                "image_size_y": args.height,
+                "fov": args.fov,
+                "sensor_tick": 0,
+            }
+            if name == "rgb":
+                attributes.update(
+                    {
+                        key: quality_settings[key]
+                        for key in (
+                            "exposure_mode",
+                            "exposure_compensation",
+                            "shutter_speed",
+                            "iso",
+                            "fstop",
+                            "motion_blur_intensity",
+                        )
+                    }
+                )
+            for key, value in attributes.items():
+                if not bp.has_attribute(key):
+                    raise RuntimeError(f"{blueprint_id} does not support required attribute {key}")
+                bp.set_attribute(key, str(value))
+            sensors[name] = world.spawn_actor(bp, original)
+
+            def receive(image, channel=name, reference=inbox_reference):
+                live = reference()
+                if live is not None:
+                    live.put(channel, image)
+
+            sensors[name].listen(receive)
         print(f"Map: {map_name}\nOutput: {output.resolve()}\n{HELP}")
         if batch:
             failures = []
@@ -265,7 +377,9 @@ def main():
                             f"batch view={number} {description}", view if source else None
                         )
                         completed += 1
-                        results.append({"view": number, "status": "ok", "image": filename})
+                        results.append(
+                            {"view": number, "status": "ok", "image": filename, **last_capture}
+                        )
                     except TimeoutError as exc:
                         failures.append({"view": number, "error": str(exc)})
                         results.append({"view": number, "status": "failed", "error": str(exc)})
@@ -275,6 +389,10 @@ def main():
                                 "Three captures failed; check CARLA rendering"
                             ) from exc
             finally:
+                quality_report = repeatability_report(output)
+                (output / "quality.json").write_text(
+                    json.dumps(quality_report, indent=2), encoding="utf-8"
+                )
                 (output / "summary.json").write_text(
                     json.dumps(
                         {
@@ -284,6 +402,7 @@ def main():
                             "not_run": len(views) - len(results),
                             "results": results,
                             "complete": completed == len(views),
+                            "quality_passed": quality_report["passed"],
                         },
                         indent=2,
                     ),
@@ -295,6 +414,8 @@ def main():
                 for overview in make_overviews(output):
                     print(f"Overview: {overview}")
             print(f"Finished: {completed}/{len(views)} images saved to {output}")
+            if quality_report["passed"] is False:
+                raise RuntimeError("Same-pose brightness changed across routes; see quality.json")
             if failures:
                 raise RuntimeError("Batch incomplete; see summary.json")
             return
@@ -356,11 +477,13 @@ def main():
         if batch:
             raise SystemExit(130) from None
     finally:
-        if sensor is not None:
-            try:
-                sensor.stop()
-            finally:
-                sensor.destroy()
+        # Attempt cleanup of every owned sensor even if one sensor RPC fails.
+        for name, sensor in reversed(list(sensors.items())):
+            for action in ("stop", "destroy"):
+                try:
+                    getattr(sensor, action)()
+                except Exception as exc:
+                    print(f"Cleanup error: {name}.{action}: {exc}")
         spectator.set_transform(original)
 
 
