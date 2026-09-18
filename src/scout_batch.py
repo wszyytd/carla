@@ -63,3 +63,129 @@ def make_overviews(output):
         sheet.save(target, quality=90)
         paths.append(target)
     return paths
+
+
+def build_comparison(source, step_m):
+    """Equal-length camera probes; each route starts at the saved observation."""
+    from .scout import moved
+
+    if not isinstance(source, dict):
+        raise ValueError("Source must be a scout JSON object")
+    if not isinstance(source.get("map"), str) or not source["map"]:
+        raise ValueError("Source must include a map name")
+    try:
+        pose = list(map(float, source["pose"]))
+        width, height, fov = source["width"], source["height"], float(source["fov"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("Source requires pose, width, height and fov") from exc
+    if len(pose) != 6 or not all(math.isfinite(v) for v in pose) or not -90 <= pose[3] <= 90:
+        raise ValueError("Pose must have six finite values and pitch in [-90, 90]")
+    if (
+        type(width) is not int
+        or type(height) is not int
+        or width <= 0
+        or height <= 0
+        or not 1 < fov < 179
+    ):
+        raise ValueError("Invalid source camera dimensions or FOV")
+    if not math.isfinite(step_m) or step_m <= 0:
+        raise ValueError("Step must be finite and positive")
+    routes = {
+        "up": ["up", "up"],
+        "down": ["down", "down"],
+        "left": ["a", "a"],
+        "right": ["d", "d"],
+        "forward": ["w", "w"],
+        "back": ["s", "s"],
+        "left_up": ["a", "up"],
+        "up_left": ["up", "a"],
+        "right_up": ["d", "up"],
+        "up_right": ["up", "d"],
+    }
+    views = []
+    for name, actions in routes.items():
+        current = pose[:]
+        for step, action in enumerate(["start", *actions]):
+            if step:
+                current = moved(current, action, step_m)
+            views.append(
+                {
+                    "route": name,
+                    "step": step,
+                    "action": action,
+                    "pose": current[:],
+                    "path_length_m": step * step_m,
+                }
+            )
+    return views
+
+
+def write_comparison_report(output, views, results):
+    """Include missing captures explicitly; human annotation fields stay empty."""
+    import csv
+    from html import escape
+
+    output = Path(output)
+    by_view = {r["view"]: r for r in results}
+    rows = []
+    cards = []
+    for number, view in enumerate(views, 1):
+        result = by_view.get(number, {"status": "not_run"})
+        image_name = result.get("image", "")
+        row = {
+            "view": number,
+            "route": view["route"],
+            "step": view["step"],
+            "action": view["action"],
+            "path_length_m": view["path_length_m"],
+            "status": result["status"],
+            "image": image_name,
+            "error": result.get("error", ""),
+            **dict(zip(("x", "y", "z", "pitch", "yaw", "roll"), view["pose"], strict=True)),
+            "new_target_count": "",
+            "new_visible_ground_m2": "",
+            "notes": "",
+        }
+        rows.append(row)
+        label = f"{view['route']} / step {view['step']} / {view['path_length_m']:g} m"
+        picture = (
+            (
+                f'<a href="{escape(image_name, quote=True)}">'
+                f'<img src="{escape(image_name, quote=True)}" loading="lazy" '
+                f'alt="{escape(label, quote=True)}"></a>'
+            )
+            if image_name
+            else '<div class="missing">No image</div>'
+        )
+        cards.append(
+            f"<article><h2>{escape(label)}</h2>{picture}"
+            f"<p>{escape(view['action'])} | {escape(result['status'])} "
+            f"{escape(result.get('error', ''))}</p>"
+            f"<small>pose: {escape(str(view['pose']))}</small></article>"
+        )
+    with (output / "comparison.csv").open("w", encoding="utf-8-sig", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=list(rows[0]) if rows else ["view"])
+        writer.writeheader()
+        writer.writerows(rows)
+    html = """<!doctype html><html lang="zh-CN"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>遮挡路线对照</title><style>
+body{font-family:system-ui,sans-serif;margin:24px;background:#f5f5f3;color:#222}
+main{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+article{background:white;padding:12px;border:1px solid #ddd;border-radius:8px;
+overflow-wrap:anywhere}
+h2{font-size:16px}img{width:100%;display:block}
+.missing{background:#ddd;padding:60px 0;text-align:center}
+p{line-height:1.6}small{color:#555}@media(max-width:850px){main{grid-template-columns:1fr}}
+</style><h1>同一起点 · 遮挡路线对照</h1>
+<p>每行一条路线：起点 → 第一步 → 第二步。左右、前后相对起点相机朝向，俯仰角固定。
+距离为请求位姿的累计位移，不包含路线之间的重置；不是已验证的飞行距离。
+相机直接设置位置，不检查碰撞，不生成连续视频，不重置场景中的动态物体。</p>
+<p>起点画面是停止对照。比较中途新露出的地面与车辆，不只比较终点。
+相同终点的组合路线在静态场景中应得到近似相同画面；中途观察可能不同。
+发现数和新增可见面积须人工核查或后续加入测量，CSV 中留空。</p>
+<p><a href="comparison.csv">下载记录表</a> · <a href="plan.json">采集计划</a> ·
+<a href="summary.json">运行状态</a></p><main>"""
+    (output / "comparison.html").write_text(
+        html + "".join(cards) + "</main></html>", encoding="utf-8"
+    )

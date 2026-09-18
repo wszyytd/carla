@@ -68,9 +68,9 @@ def main():
     parser.add_argument("--host", default="localhost")
     parser.add_argument("--port", type=int, default=2000)
     parser.add_argument("--output", default="out/scout")
-    parser.add_argument("--width", type=int, default=1280)
-    parser.add_argument("--height", type=int, default=720)
-    parser.add_argument("--fov", type=float, default=90)
+    parser.add_argument("--width", type=int)
+    parser.add_argument("--height", type=int)
+    parser.add_argument("--fov", type=float)
     parser.add_argument("--timeout", type=float, default=20)
     parser.add_argument(
         "--tick",
@@ -83,7 +83,30 @@ def main():
         "--heights", type=float, nargs="+", default=[40], help="Heights above road spawn, meters"
     )
     parser.add_argument("--pitch", type=float, default=-45)
+    parser.add_argument("--compare-from", type=Path, help="Compare routes from a scout JSON pose")
+    parser.add_argument("--step-m", type=float, default=10, help="Comparison movement per step")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Write comparison plan without CARLA"
+    )
     args = parser.parse_args()
+    source = None
+    views = []
+    if args.auto and args.compare_from:
+        parser.error("--auto and --compare-from are mutually exclusive")
+    if args.dry_run and not args.compare_from:
+        parser.error("--dry-run requires --compare-from")
+    if args.compare_from:
+        from .scout_batch import build_comparison, make_overviews, write_comparison_report
+
+        try:
+            source = json.loads(args.compare_from.read_text(encoding="utf-8-sig"))
+            views = build_comparison(source, args.step_m)
+        except (OSError, ValueError) as exc:
+            parser.error(str(exc))
+    for key, default in (("width", 1280), ("height", 720), ("fov", 90)):
+        if getattr(args, key) is None:
+            setattr(args, key, source[key] if source else default)
+    batch = args.auto or source is not None
     if args.auto:
         from .scout_batch import build_views, make_overviews
 
@@ -102,6 +125,26 @@ def main():
         or args.timeout <= 0
     ):
         parser.error("Invalid camera dimensions, FOV, or timeout")
+
+    def comparison_plan():
+        return {
+            "map": source["map"],
+            "source": str(args.compare_from),
+            "camera": {"width": args.width, "height": args.height, "fov": args.fov},
+            "step_m": args.step_m,
+            "camera_only_no_collision_check": True,
+            "reset_scope": "camera_only",
+            "views": views,
+        }
+
+    if args.dry_run:
+        output = Path(args.output) / datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        output.mkdir(parents=True, exist_ok=False)
+        (output / "plan.json").write_text(json.dumps(comparison_plan(), indent=2), encoding="utf-8")
+        print(
+            f"Dry run: {len(views)} observations, no CARLA connection. Plan: {output / 'plan.json'}"
+        )
+        return
     import carla
 
     client = carla.Client(args.host, args.port)
@@ -114,15 +157,20 @@ def main():
         raise RuntimeError("World is synchronous. Stop other scripts, then add --tick.")
     if args.tick and not settings.synchronous_mode:
         parser.error("--tick is only for an already synchronous world")
+    map_name = world.get_map().name
+    if source and source["map"] != map_name:
+        raise ValueError(f"Source map {source['map']} does not match server map {map_name}")
     spectator = world.get_spectator()
     original = spectator.get_transform()
     home = values(original)
     pose = home[:]
     output = Path(args.output) / datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     output.mkdir(parents=True, exist_ok=False)
-    map_name = world.get_map().name
     spawns = world.get_map().get_spawn_points()
-    views = build_views(spawns, args.locations, args.heights, args.pitch) if args.auto else []
+    if args.auto:
+        views = build_views(spawns, args.locations, args.heights, args.pitch)
+    if source:
+        (output / "plan.json").write_text(json.dumps(comparison_plan(), indent=2), encoding="utf-8")
     if args.auto:
         (output / "plan.json").write_text(
             json.dumps({"map": map_name, "views": views}, indent=2), encoding="utf-8"
@@ -149,7 +197,7 @@ def main():
             carla.Location(x=p[0], y=p[1], z=p[2]), carla.Rotation(pitch=p[3], yaw=p[4], roll=p[5])
         )
 
-    def capture(command):
+    def capture(command, view=None):
         nonlocal index
         target = transform(pose)
         sensor.set_transform(target)
@@ -188,25 +236,39 @@ def main():
             "command": command,
             "camera_only_no_collision_check": True,
         }
+        if view is not None:
+            metadata["comparison"] = view
         stem.with_suffix(".json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
         print(f"Saved {stem}.png | pose: " + " ".join(f"{v:.2f}" for v in metadata["pose"]))
+
+        return stem.with_suffix(".png").name
 
     try:
         sensor = world.spawn_actor(bp, original)
         sensor.listen(receive)
         print(f"Map: {map_name}\nOutput: {output.resolve()}\n{HELP}")
-        if args.auto:
+        if batch:
             failures = []
+            results = []
             completed = 0
             try:
                 for number, view in enumerate(views, 1):
                     pose = view["pose"][:]
-                    print(f"[{number}/{len(views)}] spawn={view['spawn_index']}", flush=True)
+                    description = (
+                        f"route={view['route']} step={view['step']}"
+                        if source
+                        else f"spawn={view['spawn_index']}"
+                    )
+                    print(f"[{number}/{len(views)}] {description}", flush=True)
                     try:
-                        capture(f"auto view={number} spawn={view['spawn_index']}")
+                        filename = capture(
+                            f"batch view={number} {description}", view if source else None
+                        )
                         completed += 1
+                        results.append({"view": number, "status": "ok", "image": filename})
                     except TimeoutError as exc:
                         failures.append({"view": number, "error": str(exc)})
+                        results.append({"view": number, "status": "failed", "error": str(exc)})
                         print(f"Skipped: {exc}", flush=True)
                         if len(failures) >= 3 and completed == 0:
                             raise RuntimeError(
@@ -215,11 +277,21 @@ def main():
             finally:
                 (output / "summary.json").write_text(
                     json.dumps(
-                        {"planned": len(views), "completed": completed, "failures": failures},
+                        {
+                            "planned": len(views),
+                            "completed": completed,
+                            "failures": failures,
+                            "not_run": len(views) - len(results),
+                            "results": results,
+                            "complete": completed == len(views),
+                        },
                         indent=2,
                     ),
                     encoding="utf-8",
                 )
+                if source:
+                    write_comparison_report(output, views, results)
+                    print(f"Comparison: {output / 'comparison.html'}")
                 for overview in make_overviews(output):
                     print(f"Overview: {overview}")
             print(f"Finished: {completed}/{len(views)} images saved to {output}")
@@ -281,6 +353,8 @@ def main():
                 print(f"Error: {exc}")
     except (KeyboardInterrupt, EOFError):
         print("\nStopped.")
+        if batch:
+            raise SystemExit(130) from None
     finally:
         if sensor is not None:
             try:
