@@ -4,10 +4,10 @@ import argparse
 import json
 import math
 import time
-import weakref
 from datetime import datetime
 from pathlib import Path
 
+from .carla_experiments.sensors import configure_required_attributes, listen_to_inbox
 from .scout_quality import (
     FrameInbox,
     InstanceHistory,
@@ -323,7 +323,6 @@ def main():
 
     try:
         library = world.get_blueprint_library()
-        inbox_reference = weakref.ref(inbox)
         for name, blueprint_id in channels.items():
             bp = library.find(blueprint_id)
             attributes = {
@@ -346,18 +345,9 @@ def main():
                         )
                     }
                 )
-            for key, value in attributes.items():
-                if not bp.has_attribute(key):
-                    raise RuntimeError(f"{blueprint_id} does not support required attribute {key}")
-                bp.set_attribute(key, str(value))
+            configure_required_attributes(bp, attributes)
             sensors[name] = world.spawn_actor(bp, original)
-
-            def receive(image, channel=name, reference=inbox_reference):
-                live = reference()
-                if live is not None:
-                    live.put(channel, image)
-
-            sensors[name].listen(receive)
+            listen_to_inbox(sensors[name], inbox, name)
         print(f"Map: {map_name}\nOutput: {output.resolve()}\n{HELP}")
         if batch:
             failures = []

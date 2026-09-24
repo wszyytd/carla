@@ -18,7 +18,7 @@ from ..metrics import (
     count_dominant_vehicle_instance_pixels,
     project_bounding_box,
 )
-from ..runtime import OwnedActors
+from ..runtime import OwnedActors, apply_camera_capture_settings
 from ..sensors import spawn_paired_camera_rig
 from .artifacts import digest, finish_artifacts, save_images, write_json
 from .preview import blocked_by, matches_view, pose_values, poses_close, preview_views
@@ -364,14 +364,7 @@ def capture(carla, config, output, report=lambda text: None):
         )
         write_json(root / "metadata.json", metadata)
         original = world.get_settings()
-        settings = world.get_settings()
-        settings.synchronous_mode = True
-        settings.fixed_delta_seconds = config.fixed_delta_seconds
-        settings.no_rendering_mode = False
-        settings.substepping = True
-        settings.max_substep_delta_time = 0.01
-        settings.max_substeps = max(10, math.ceil(config.fixed_delta_seconds / 0.01))
-        world.apply_settings(settings)
+        apply_camera_capture_settings(world, config.fixed_delta_seconds)
         with (root / "nodes.jsonl").open("w", encoding="utf-8") as stream:
             for index, blueprint_id in enumerate(config.blueprint_ids):
                 _capture_class(

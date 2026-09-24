@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -137,3 +138,15 @@ class SynchronousSession:
         self.cleanup_failures = tuple(failures)
         _report_cleanup(self._progress, "会话清理完成")
         return False
+
+
+def apply_camera_capture_settings(world, fixed_delta_seconds):
+    """Shared AOD/viewbank stationary-camera synchronous settings; caller restores original."""
+    settings = world.get_settings()
+    settings.synchronous_mode = True
+    settings.fixed_delta_seconds = fixed_delta_seconds
+    settings.no_rendering_mode = False
+    settings.substepping = True
+    settings.max_substep_delta_time = 0.01
+    settings.max_substeps = max(10, math.ceil(fixed_delta_seconds / 0.01))
+    world.apply_settings(settings)

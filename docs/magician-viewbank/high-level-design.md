@@ -31,12 +31,12 @@ flowchart LR
 
 ## 2. 仓库目录规划
 
-计划在当前仓库中增加以下结构；本轮文档提交不宣称这些模块已经实现：
+CARLA 生产端已按以下结构实现并接受本机离线测试；真实 CARLA 采集仍待服务器验收：
 
 ```text
 cfg/viewbank/
   town10_aod_probe.yaml
-src/viewbank.py                         # CLI：plan/capture/check/export
+src/viewbank.py                         # CLI：plan/capture/check（export 留待后续）
 src/carla_experiments/viewbank/
   __init__.py
   config.py                             # 配置解析、schema 与阈值
@@ -232,3 +232,28 @@ sequenceDiagram
 | R-08 | 相机转换模块 | 投影—反投影和已知运动方向测试 |
 | R-09 | Evaluation Only | 同起点、预算、边和成本的三基线对照 |
 | R-10 | `validate.py`、`quality.json` | 损坏、缺失、中断和不连通批次拒绝测试 |
+
+
+## 12. 本轮生产端实现决策
+
+本轮只交付 P0 和 P1 的采集软件及模拟验证；P1 真实服务器采集未运行，P2–P4 未实现。
+[实现格式说明](README.md) 为实际字段与命令的权威说明；前文示例及后端时序继续描述目标设计。
+
+- `requested_transform`/`actual_transform` 使用已有 scout 的 `[x,y,z,pitch,yaw,roll]` 数组约定，
+  替代前文示例中的对象字段；字段顺序写入 scene 坐标说明。`local_pose` 包含位置、角度和旋转矩阵。
+- `camera.json` 内参对应所有传感器共同的固定针孔配置，逐图核对实际 FOV/尺寸，保存每通道原始拍摄位姿；K 由实际 FOV/尺寸计算。
+- 增加 `config.resolved.json`、`summary.json`、`region_geometry.json` 和逐节点 `receipt.json`，
+  后者解决目录已原子提交、节点清单尚未更新时的恢复窗口；不改变需求中的帧文件路径。
+- `check` 独立重建理论图、节点几何和边合法性；不只信任清单中的 valid 标记。
+- 精确 slab 相交优于步进采样；`edge_step_m` 作为显式配置保留，并在输出说明当前不用于采样。
+- 18 节点配置为 3×3×2×1，同一套相机与原点；72 节点完整 Pilot 才包含四向 yaw 动作。
+- 第一批采集是原有地图静态环境，不复用旧 AOD 分批生成的目标车辆，不生成新的目标类别/标签。
+  外部动态 Actor 拒绝；交通灯冻结红灯并恢复。未来受控目标配置需单独扩展 schema 和测试。
+- 公共同步相机设置从 AOD 抽取到 runtime，蓝图属性检查/弱引用回调从 scout 抽取到 sensors。
+  三路配对、稳定性和深度解码直接复用 scout_quality；Actor 清理直接复用 OwnedActors。
+- 所有单位和左右手/光学轴约定明确记录；射线距离与 z-depth 分开，当前只落盘前者。
+- 输出锁使用 OS advisory lock；配置或环境指纹不匹配拒绝续采；图像文件的独立 receipt 是恢复依据。
+- 格式分离 diagnostic/evaluation 与 observation，但本轮没有实现后端访问控制，不能声称防泄漏闭环已验收。
+
+[服务器操作文档](server-operations.md) 列出 18 节点实拍、质量检查、重试、72 节点扩展和整库复制步骤。
+AABB 不是飞行安全证明；单区域接口批次也不能支持 MAGICIAN 更优秀的研究结论。

@@ -1,0 +1,82 @@
+# Source: data/aod_preview_v2/config.json and metadata.json (not converted data).
+# Origin is the recorded observation_center; axes parallel to CARLA world.
+# z_world_m is absolute WORLD z, NOT altitude above terrain or above origin.
+# Heights use old ground reference 0.599999964 + 40/60 m; terrain remains unverified.
+# Old preview used 1920x1080/FOV 60/histogram; this new library uses one fixed
+# 456x256/FOV 91.6/manual configuration, to be calibrated on the server.
+# ROI bounds are relative to origin; edge_step_m is recorded for future mesh
+# checks. Version 1 uses exact segment-AABB intersection, not sampled endpoints.
+schema_version: 1
+scene_id: town10_aod_smoke_v1
+client:
+  host: localhost
+  port: 2000
+  timeout_seconds: 30
+scene:
+  map: Carla/Maps/Town10HD_Opt
+  seed: 7
+  fixed_delta_seconds: 0.05
+  weather: ClearNoon
+  roi_min_m:
+  - -30
+  - -30
+  - 0
+  roi_max_m:
+  - 30
+  - 30
+  - 70
+grid:
+  origin_m:
+  - -64.64484405517578
+  - 24.471010208129883
+  - 1.5999999642372131
+  x_offsets_m:
+  - -20
+  - 0
+  - 20
+  y_offsets_m:
+  - -20
+  - 0
+  - 20
+  z_world_m:
+  - 40.59999996423721
+  - 60.59999996423721
+  yaw_deg:
+  - 0
+  pitch_deg: -45
+camera:
+  width: 456
+  height: 256
+  fov_deg: 91.6
+  instance: true
+  exposure:
+    exposure_mode: manual
+    iso: 100
+    shutter_speed: 200
+    fstop: 2.8
+    exposure_compensation: 0
+    motion_blur_intensity: 0
+graph:
+  clearance_m: 1
+  edge_step_m: 1
+  start_index:
+  - 1
+  - 1
+  - 0
+  - 0
+  translation_cost_per_m: 1
+  rotation_cost_per_deg: 0.01
+capture:
+  warmup_seconds: 2
+  timeout_seconds: 60
+  max_frame_ticks: 600
+quality:
+  position_error_m: 0.1
+  angle_error_deg: 0.1
+  timestamp_error_seconds: 1.0e-06
+  stability_threshold: 1
+  min_finite_depth_fraction: 1
+  min_valid_depth_fraction: 0.5
+  depth_min_m: 0.1
+  depth_max_m: 999
+  require_connected: true

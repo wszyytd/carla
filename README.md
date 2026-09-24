@@ -7,11 +7,20 @@
 本仓库只放原生 CARLA 实验。两边可以使用兼容的实验条件和指标做 A/B 对照，但不共享
 AirSim 运行时逻辑。
 
-## MAGICIAN 离线视点库（设计阶段）
+## MAGICIAN 离线 RGB-D 视点库
 
-CARLA 端负责在固定局部区域生成位姿图并采集同步 RGB-D；MAGICIAN 端按已执行节点读取真实观测，
-完成“更新场景表示—想象候选视点—束搜索—执行一步—重新规划”的闭环。当前先完成需求和接口设计，
-尚未实现采集命令。详见 [需求分析](docs/magician-viewbank/requirements.md) 和
+提供 `python -m src.viewbank plan/capture/check`：严格配置、确定性格点、静态 AABB
+节点/线段检查、同步 RGB-D 与可选实例图、原子写入、哈希恢复及离线质量检查。
+默认 Pilot 为 72 个请求节点；独立冒烟配置为 18 个节点。`plan` 和 `check` 无需安装 CARLA。
+
+```bash
+python -m src.viewbank plan --config cfg/viewbank/town10_aod_probe.yaml --output out/viewbank_plan
+```
+
+本机离线和模拟边界验证与服务器真实采集是两个验收门；**真实 CARLA 采集待运行**。
+本轮仅实现 CARLA 数据生产端，不包含 MAGICIAN 后端、训练、检测器或算法优劣结论。
+详见 [格式与使用](docs/magician-viewbank/README.md)、
+[服务器操作](docs/magician-viewbank/server-operations.md) 和
 [概要设计](docs/magician-viewbank/high-level-design.md)。
 
 ## 遮挡场景路线对照

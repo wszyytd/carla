@@ -135,3 +135,23 @@ def spawn_paired_camera_rig(
         world.spawn_actor(instance_blueprint, initial_transform)
     )
     return AerialSensorRig(rgb_sensor, instance_sensor)
+
+
+def configure_required_attributes(blueprint, attributes):
+    """Fail explicitly if fixed imaging conditions cannot be requested."""
+    for key, value in attributes.items():
+        if not blueprint.has_attribute(key):
+            raise RuntimeError(f"{blueprint.id} does not support required attribute {key}")
+        blueprint.set_attribute(key, str(value))
+
+
+def listen_to_inbox(sensor, inbox, channel):
+    """Weak callback used by scout and viewbank; does not keep an abandoned inbox alive."""
+    reference = weakref.ref(inbox)
+
+    def receive(image):
+        live = reference()
+        if live is not None:
+            live.put(channel, image)
+
+    sensor.listen(receive)
