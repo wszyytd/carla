@@ -7,6 +7,13 @@
 本仓库只放原生 CARLA 实验。两边可以使用兼容的实验条件和指标做 A/B 对照，但不共享
 AirSim 运行时逻辑。
 
+## MAGICIAN 离线视点库（设计阶段）
+
+CARLA 端负责在固定局部区域生成位姿图并采集同步 RGB-D；MAGICIAN 端按已执行节点读取真实观测，
+完成“更新场景表示—想象候选视点—束搜索—执行一步—重新规划”的闭环。当前先完成需求和接口设计，
+尚未实现采集命令。详见 [需求分析](docs/magician-viewbank/requirements.md) 和
+[概要设计](docs/magician-viewbank/high-level-design.md)。
+
 ## 遮挡场景路线对照
 
 以已选的院落第七张截图为起点，自动采集上升、横移与组合路线，并生成图片对照网页：
