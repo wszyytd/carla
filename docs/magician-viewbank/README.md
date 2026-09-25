@@ -162,3 +162,14 @@ Mie 0.03、Rayleigh 0.0331；云量为 5/60。实际天气必须与请求回读�
 camera 稳定性诊断；持续错配仍记失败。
 局部旋转矩阵的离线重算使用绝对 1e-10 容差以容纳 Linux/Windows 三角函数末位差异，
 实际请求/拍摄位姿误差门没有放宽。
+
+
+服务器天气回读失败时，先运行只读能力检查：
+
+```bash
+python -m src.viewbank doctor --config cfg/viewbank/town10_aod_smoke.yaml
+```
+
+该命令需要 CARLA Python API 和在线服务器；plan/check 仍不依赖 CARLA。
+`weather_enabled=false` 表示当前地图没有 CARLA 天气 Actor，不能用调整曝光解决；
+具体日志、资源检查和空批次续采见 [服务器操作](server-operations.md#2a-先检查当前地图的天气能力只读)。

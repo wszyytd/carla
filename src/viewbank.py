@@ -47,6 +47,8 @@ def main(argv=None):
             sub.add_argument(
                 "--resume", action="store_true", help="verify and resume identical configuration"
             )
+    sub = commands.add_parser("doctor", help="read-only server/weather capability diagnosis")
+    sub.add_argument("--config", type=Path, required=True)
     sub = commands.add_parser("check")
     sub.add_argument("--input", type=Path, required=True)
     args = parser.parse_args(argv)
@@ -58,6 +60,10 @@ def main(argv=None):
         cfg = load_config(args.config)
         if args.command == "plan":
             result = plan(cfg, args.output)
+        elif args.command == "doctor":
+            from .carla_experiments.viewbank.capture import doctor
+
+            result = doctor(importlib.import_module("carla"), cfg)
         else:
             from .carla_experiments.viewbank.capture import capture
 

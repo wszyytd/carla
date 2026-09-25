@@ -105,6 +105,84 @@ def weather_profile(name):
     }
 
 
+def environment_preflight(world, cfg):
+    """Read-only capability check; null means the client lacks the required 0.10 API."""
+    query = getattr(world, "is_weather_enabled", None)
+    enabled = bool(query()) if callable(query) else None
+    map_name = str(world.get_map().name)
+    errors = []
+    if map_name.split("/")[-1] != cfg["scene"]["map"].split("/")[-1]:
+        errors.append(f"map mismatch: {map_name}")
+    if enabled is False:
+        errors.append(
+            "weather unavailable: is_weather_enabled()=False; this map has no CARLA weather "
+            "actor. Check server log for 'Missing weather class!' / 'weather is disabled'; "
+            "repair map/GameMode weather assets before capture (see server-operations.md)."
+        )
+    elif enabled is None:
+        errors.append(
+            "weather capability unknown: is_weather_enabled API missing; install the "
+            "Python wheel shipped with the running CARLA 0.10.0 server."
+        )
+    try:
+        _assert_empty_world(world)
+    except RuntimeError as error:
+        errors.append(str(error))
+    return {
+        "read_only": True,
+        "map": map_name,
+        "weather_enabled": enabled,
+        "actual_weather": _weather(world),
+        "passed": not errors,
+        "errors": errors,
+    }
+
+
+def doctor(carla, cfg):
+    """Inspect the running server without setting weather, ticking or spawning actors."""
+    cfg = parse_config(cfg)
+    client, versions = connect(carla, SimpleNamespace(**cfg["client"]))
+    result = environment_preflight(client.get_world(), cfg)
+    result.update(
+        carla_client_version=versions[0],
+        carla_server_version=versions[1],
+        python_api_path=getattr(carla, "__file__", None),
+        scope="capabilities only; does not verify weather application or RGB quality",
+        exit_code=0 if result["passed"] else 3,
+    )
+    return result
+
+
+def apply_weather_verified(world, requested, cfg, diagnostics):
+    """Bound the asynchronous setter/readback gap; never accept a mismatched value."""
+    value = world.get_weather()
+    for key, wanted in requested.items():
+        setattr(value, key, wanted)
+    diagnostics.update(requested=requested, ticks=0, matched=False)
+    world.set_weather(value)
+    deadline = time.monotonic() + cfg["client"]["timeout_seconds"]
+    for tick in range(min(20, cfg["capture"]["max_frame_ticks"]) + 1):
+        actual = _weather(world)
+        diagnostics.update(actual=actual, ticks=tick)
+        if all(
+            key in actual and math.isclose(actual[key], wanted, abs_tol=1e-4, rel_tol=0)
+            for key, wanted in requested.items()
+        ):
+            diagnostics["matched"] = True
+            return actual
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or tick == min(20, cfg["capture"]["max_frame_ticks"]):
+            break
+        _assert_empty_world(world)
+        world.tick(remaining)
+    raise RuntimeError(
+        f"weather readback mismatch after {diagnostics['ticks']} ticks: "
+        f"requested={requested}, actual={diagnostics['actual']}; "
+        "weather actor exists but did not retain requested values; inspect server log "
+        "and stop other weather controllers"
+    )
+
+
 def spawn_sensors(world, carla, cfg, actors, inbox, pose):
     channels = {"rgb": "sensor.camera.rgb", "depth": "sensor.camera.depth"}
     if cfg["camera"]["instance"]:
@@ -209,30 +287,22 @@ def _capture(carla, cfg, root, resume, report):
     try:
         client, versions = connect(carla, SimpleNamespace(**cfg["client"]))
         world = client.get_world()
-        map_name = str(world.get_map().name)
-        if map_name.split("/")[-1] != cfg["scene"]["map"].split("/")[-1]:
-            raise RuntimeError(f"map mismatch: {map_name}")
-        _assert_empty_world(world)
+        scene.update(carla_client_version=versions[0], carla_server_version=versions[1])
+        scene["preflight"] = environment_preflight(world, cfg)
+        write_json(root / "scene.json", scene)
+        if not scene["preflight"]["passed"]:
+            raise RuntimeError("; ".join(scene["preflight"]["errors"]))
+        map_name = scene["preflight"]["map"]
         random.seed(cfg["scene"]["seed"])
         np.random.seed(cfg["scene"]["seed"])
         settings, weather = world.get_settings(), world.get_weather()
         apply_camera_capture_settings(world, cfg["scene"]["fixed_delta_seconds"])
         requested_weather = weather_profile(cfg["scene"]["weather"])
-        fixed_weather = world.get_weather()
-        for key, value in requested_weather.items():
-            setattr(fixed_weather, key, value)
-        world.set_weather(fixed_weather)
-        actual_weather = _weather(world)
-        if any(
-            key not in actual_weather
-            or not math.isclose(actual_weather[key], value, abs_tol=1e-4, rel_tol=0)
-            for key, value in requested_weather.items()
-        ):
-            raise RuntimeError(
-                f"weather readback mismatch: requested={requested_weather}, "
-                f"actual={actual_weather}; check server weather support"
-            )
         scene["weather_request"] = requested_weather
+        scene["weather_application"] = {}
+        scene["actual_weather"] = apply_weather_verified(
+            world, requested_weather, cfg, scene["weather_application"]
+        )
         lights = [
             (light, light.is_frozen(), light.get_state())
             for light in world.get_actors().filter("traffic.traffic_light*")

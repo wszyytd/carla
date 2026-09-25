@@ -47,6 +47,51 @@ python -m src.smoke --config cfg/simulator.yaml
 Python API wheel 必须与 CARLA 0.10.0 对应；安装位置见 [setup-server.md](../setup-server.md)。
 不要使用 no-rendering 模式替代 RenderOffScreen。
 
+## 2a. 先检查当前地图的天气能力（只读）
+
+```bash
+python -m src.viewbank doctor --config cfg/viewbank/town10_aod_smoke.yaml
+```
+
+此命令只读，不切图、不推进世界、不设置天气、不生成传感器或数据目录。
+`passed=true` 只表示地图/天气能力/动态 Actor 预检通过，不代表 RGB 或天气设置已经验收。
+
+- `weather_enabled=false`：当前地图没有 CARLA 天气 Actor。不要反复 capture、调曝光或关闭天气检查。
+- `weather_enabled=null`：Python API 没有 `is_weather_enabled`；检查输出的 wheel 路径和客户端/服务器版本，安装发行包自带 0.10.0 wheel。
+- `weather_enabled=true` 但 capture 仍报 mismatch：采集器最多推进 20 帧，并受客户端超时限制等待异步设置；仍不一致则保留 requested/actual，排查其他天气控制脚本及服务器日志。
+
+CARLA 0.10.0 的无天气 Actor 路径会返回除 Rayleigh=0.0331 外全零的默认天气，
+与 2026-09-25 服务器返回值一致；仅凭这一数值模式仍不能代替 `is_weather_enabled()` 的确认。
+`set_weather()` 是异步 RPC，因此没有 Python 异常不能证明设置成功。
+官方实现见 [服务端天气接口](https://github.com/carla-simulator/carla/blob/0.10.0/Unreal/CarlaUnreal/Plugins/Carla/Source/Carla/Server/CarlaServer.cpp)、
+[客户端异步设置](https://github.com/carla-simulator/carla/blob/0.10.0/LibCarla/source/carla/client/detail/Client.cpp)。
+
+如果返回 false，在 CARLA 发行包目录查日志（不改文件）：
+
+```bash
+cd /mnt/fast18/sunbo/CARLA-0.10.0/Carla-0.10.0-Linux-Shipping
+find . -type f -name '*.log' -path '*/Saved/Logs/*' -exec grep -nE 'Missing weather class|weather is disabled|weather actor|Failed to load|Failed to find' {} +
+```
+
+先保留 doctor 输出和相关日志。确认专用实例没有其他任务后，可以按第 2 节重新加载同一 Town10 地图，
+再跑 doctor；重新加载不保证修复缺失资源。如果仍 false，需要检查该地图使用的 CARLA GameMode 是否配置了
+WeatherClass，或关卡中是否存在 CARLA AWeather 派生蓝图，以及对应资源是否被正确打包。
+源码 [CarlaGameModeBase.cpp](https://github.com/carla-simulator/carla/blob/0.10.0/Unreal/CarlaUnreal/Plugins/Carla/Source/Carla/Game/CarlaGameModeBase.cpp)
+会寻找已有天气 Actor，否则尝试通过 WeatherClass 创建。Python 没有一个通用开关可以修补缺失的天气蓝图。
+不要为了让检查变绿而未经确认切到不同地图，旧 ROI 和 AABB 必须继续对应真实地图。
+
+本次 v2 在传感器生成前失败，captured=0；修复天气能力后可对**这个空 v2 批次**使用：
+
+```bash
+cd /mnt/fast18/sunbo/carla
+python -m src.viewbank capture --config cfg/viewbank/town10_aod_smoke.yaml --output data/viewbank/town10_aod_smoke_v2 --resume
+python -m src.viewbank check --input data/viewbank/town10_aod_smoke_v2
+```
+
+这不适用于旧 v1 黑帧批次。若修改配置则改 scene_id/输出目录，不能混合续采。
+早期失败的 `scene.json` 保留版本、preflight 和 weather_application（若已尝试设置）；
+`check` 同时展示原始错误。`missing CARLA environment provenance` 是未完成环境初始化的后果，不是另一项独立根因。
+
 ## 3. 离线生成小型计划
 
 ```bash

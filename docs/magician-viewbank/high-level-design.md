@@ -262,3 +262,11 @@ AABB 不是飞行安全证明；单区域接口批次也不能支持 MAGICIAN �
 2026-09-25 的首次数据诊断及后续修复见 [first-capture-diagnosis.md](first-capture-diagnosis.md)。
 固定天气增加实际回读门，黑白退化帧增加可配置均值质量门；预设参数映射作为环境版本 2 记录，
 因此不与旧环境混合续采。schema 仍为 v1，新增质量参数对旧配置读取兼容。
+
+
+### 天气能力预检补充（首次 v2 服务器反馈后）
+
+capture 在修改世界前调用 `is_weather_enabled()`，缺失天气 Actor 或缺失该 API 时拒绝采集，
+提前保存客户端/服务器版本与 preflight。`doctor --config ...` 复用同一只读预检入口，不推进世界。
+天气 setter 为异步 RPC；仅对能力存在的世界进行有界回读等待，保存 requested/actual/ticks，阈值保持不变。
+这项工程检查不代替服务器地图天气资源修复和 RGB 实拍验收，见 server-operations.md 的 2a 节。

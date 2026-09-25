@@ -29,6 +29,9 @@ class CaptureWorld(World):
         self.actors.append(actor)
         return actor
 
+    def is_weather_enabled(self):
+        return True
+
     def get_weather(self):
         return copy.deepcopy(self.weather)
 
@@ -390,3 +393,89 @@ def test_timestamp_mismatch_retries_without_relaxing_tolerance(tmp_path, persist
     assert result["passed"] is not persistent
     if persistent:
         assert "timestamp" in (tmp_path / "timestamp/capture.log").read_text()
+
+
+@pytest.mark.parametrize("enabled", [False, None])
+def test_missing_weather_capability_fails_without_world_mutation(tmp_path, enabled):
+    from src.carla_experiments.viewbank.artifacts import read_json
+
+    world = CaptureWorld()
+    world.is_weather_enabled = (lambda: enabled) if enabled is not None else None
+
+    def forbidden(*args):
+        pytest.fail("preflight must not mutate a world without weather support")
+
+    world.set_weather = world.apply_settings = world.tick = world.spawn_actor = forbidden
+    root = tmp_path / "disabled-weather"
+    result = api().capture(simulator(world), small_config(), root)
+    assert result["exit_code"] == 3
+    scene = read_json(root / "scene.json")
+    assert scene["preflight"]["weather_enabled"] is enabled
+    assert scene["carla_server_version"]
+    assert "weather" in scene["error"]
+    assert not scene["cleanup_failures"]
+    from src.carla_experiments.viewbank.validate import check_dataset
+
+    assert scene["error"] in check_dataset(root)["errors"]
+
+
+def test_async_weather_update_waits_for_readback_before_spawning(tmp_path):
+    from src.carla_experiments.viewbank.artifacts import read_json
+
+    world = CaptureWorld()
+    tick, spawn = world.tick, world.spawn_actor
+    pending = []
+    world.set_weather = lambda value: pending.append(copy.deepcopy(value))
+
+    def delayed_tick(*args):
+        if pending:
+            world.weather = pending.pop(0)
+        return tick(*args)
+
+    def verified_spawn(*args):
+        assert world.weather.sun_altitude_angle == 75
+        return spawn(*args)
+
+    world.tick, world.spawn_actor = delayed_tick, verified_spawn
+    root = tmp_path / "async-weather"
+    assert api().capture(simulator(world), small_config(), root)["passed"]
+    assert read_json(root / "scene.json")["weather_application"]["ticks"] == 1
+
+
+@pytest.mark.parametrize("enabled", [True, False, None])
+def test_doctor_is_read_only_and_reports_weather_support(enabled):
+    world = CaptureWorld()
+    world.is_weather_enabled = (lambda: enabled) if enabled is not None else None
+
+    def forbidden(*args):
+        pytest.fail("doctor must not mutate or tick the world")
+
+    world.set_weather = world.apply_settings = world.tick = world.spawn_actor = forbidden
+    carla = simulator(world)
+    result = api().doctor(carla, small_config())
+    assert result["weather_enabled"] is enabled
+    assert result["passed"] is (enabled is True)
+    assert result["read_only"] is True
+    assert result["actual_weather"]["sun_altitude_angle"] == 60
+
+
+def test_resume_zero_frame_weather_failure_after_server_repair(tmp_path):
+    world = CaptureWorld()
+    world.is_weather_enabled = lambda: False
+    root = tmp_path / "weather-repair"
+    failed = api().capture(simulator(world), small_config(), root)
+    assert failed["captured"] == 0 and failed["exit_code"] == 3
+    world.is_weather_enabled = lambda: True
+    assert api().capture(simulator(world), small_config(), root, resume=True)["passed"]
+
+
+def test_doctor_cli_outputs_json_without_output_directory(monkeypatch, capsys):
+    import json
+
+    from src import viewbank
+
+    world = CaptureWorld()
+    world.is_weather_enabled = lambda: False
+    monkeypatch.setitem(__import__("sys").modules, "carla", simulator(world))
+    assert viewbank.main(["doctor", "--config", "cfg/viewbank/town10_aod_smoke.yaml"]) == 3
+    assert json.loads(capsys.readouterr().out)["weather_enabled"] is False

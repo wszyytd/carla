@@ -213,6 +213,8 @@ def inspect_dataset(root, require_complete=True):
     errors = report["errors"]
     try:
         scene = read_json(root / "scene.json")
+        if scene.get("error"):
+            errors.append(scene["error"])
         _require(scene["schema_version"] == 1, "unsupported schema_version")
         cfg = parse_config(read_json(root / "config.resolved.json"))
         report["planned"] = len(build_grid(cfg)[0])
