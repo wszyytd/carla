@@ -141,3 +141,41 @@ def test_malformed_json_reports_failure_without_crashing(tmp_path, path, value):
     root, _, _, _, _ = complete_bank(tmp_path)
     api().write_json(root / path, value)
     assert not check(root)["passed"]
+
+
+@pytest.mark.parametrize("delta,accepted", [(1.1e-16, True), (1e-3, False)])
+def test_cross_platform_local_rotation_roundoff(tmp_path, delta, accepted):
+    root, cfg, _, nodes, _ = complete_bank(tmp_path)
+    folder = root / "frames/n_0000"
+    camera = api().read_json(folder / "camera.json")
+    camera["local_pose"]["rotation_matrix"][0][2] += delta
+    nodes[0]["local_pose"] = camera["local_pose"]
+    api().write_json(folder / "camera.json", camera)
+    module = importlib.import_module("src.carla_experiments.viewbank.validate")
+    if accepted:
+        module.inspect_camera_files(folder, nodes[0], cfg)
+    else:
+        with pytest.raises(ValueError, match="local pose"):
+            module.inspect_camera_files(folder, nodes[0], cfg)
+
+
+@pytest.mark.parametrize("value", [0, 255])
+def test_offline_check_rejects_black_and_white_rgb(tmp_path, value):
+    from PIL import Image
+
+    root, cfg, _, nodes, _ = complete_bank(tmp_path)
+    folder = root / "frames/n_0000"
+    Image.fromarray(np.full((6, 8, 3), value, np.uint8)).save(folder / "rgb.png")
+    module = importlib.import_module("src.carla_experiments.viewbank.validate")
+    with pytest.raises(ValueError, match="RGB"):
+        module.inspect_camera_files(folder, nodes[0], cfg)
+
+
+@pytest.mark.parametrize("delta,accepted", [(1e-16, True), (1e-3, False)])
+def test_quality_report_recomputation_allows_only_roundoff(tmp_path, delta, accepted):
+    root, _, _, _, _ = complete_bank(tmp_path)
+    quality = api().read_json(root / "quality.json")
+    quality["node_quality"]["n_0000"]["position_error_m"] += delta
+    api().write_json(root / "quality.json", quality)
+    api().write_checksums(root)
+    assert check(root)["passed"] is accepted

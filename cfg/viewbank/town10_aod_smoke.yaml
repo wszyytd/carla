@@ -7,7 +7,7 @@
 # ROI bounds are relative to origin; edge_step_m is recorded for future mesh
 # checks. Version 1 uses exact segment-AABB intersection, not sampled endpoints.
 schema_version: 1
-scene_id: town10_aod_smoke_v1
+scene_id: town10_aod_smoke_v2
 client:
   host: localhost
   port: 2000
@@ -80,3 +80,5 @@ quality:
   depth_min_m: 0.1
   depth_max_m: 999
   require_connected: true
+  rgb_mean_min: 5.0
+  rgb_mean_max: 250.0

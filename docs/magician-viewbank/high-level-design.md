@@ -31,7 +31,7 @@ flowchart LR
 
 ## 2. 仓库目录规划
 
-CARLA 生产端已按以下结构实现并接受本机离线测试；真实 CARLA 采集仍待服务器验收：
+CARLA 生产端已按以下结构实现并接受本机离线测试；首次实拍未通过，修复版仍待服务器验收：
 
 ```text
 cfg/viewbank/
@@ -236,7 +236,7 @@ sequenceDiagram
 
 ## 12. 本轮生产端实现决策
 
-本轮只交付 P0 和 P1 的采集软件及模拟验证；P1 真实服务器采集未运行，P2–P4 未实现。
+本轮只交付 P0 和 P1 的采集软件及模拟验证；P1 首次实拍失败，修复版待重新采集，P2–P4 未实现。
 [实现格式说明](README.md) 为实际字段与命令的权威说明；前文示例及后端时序继续描述目标设计。
 
 - `requested_transform`/`actual_transform` 使用已有 scout 的 `[x,y,z,pitch,yaw,roll]` 数组约定，
@@ -257,3 +257,8 @@ sequenceDiagram
 
 [服务器操作文档](server-operations.md) 列出 18 节点实拍、质量检查、重试、72 节点扩展和整库复制步骤。
 AABB 不是飞行安全证明；单区域接口批次也不能支持 MAGICIAN 更优秀的研究结论。
+
+
+2026-09-25 的首次数据诊断及后续修复见 [first-capture-diagnosis.md](first-capture-diagnosis.md)。
+固定天气增加实际回读门，黑白退化帧增加可配置均值质量门；预设参数映射作为环境版本 2 记录，
+因此不与旧环境混合续采。schema 仍为 v1，新增质量参数对旧配置读取兼容。

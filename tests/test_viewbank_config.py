@@ -107,3 +107,14 @@ def test_shipped_configs_have_72_and_18_nodes():
         raw = yaml.safe_load(Path(f"cfg/viewbank/{name}.yaml").read_text(encoding="utf-8"))
         cfg = api().parse_config(raw)
         assert len(build_grid(cfg)[0]) == count
+
+
+def test_optional_rgb_quality_limits_preserve_legacy_config_hash():
+    original = api().parse_config(raw_config())
+    assert "rgb_mean_min" not in original["quality"]
+    raw = raw_config()
+    raw["quality"].update(rgb_mean_min=5.0, rgb_mean_max=250.0)
+    assert api().parse_config(raw)["quality"]["rgb_mean_min"] == 5
+    raw["quality"]["rgb_mean_max"] = 4
+    with pytest.raises(ValueError):
+        api().parse_config(raw)

@@ -17,7 +17,7 @@ AirSim 运行时逻辑。
 python -m src.viewbank plan --config cfg/viewbank/town10_aod_probe.yaml --output out/viewbank_plan
 ```
 
-本机离线和模拟边界验证与服务器真实采集是两个验收门；**真实 CARLA 采集待运行**。
+本机离线和模拟边界验证与服务器真实采集是两个验收门；**首次实拍未通过，修复版待服务器重采**。
 本轮仅实现 CARLA 数据生产端，不包含 MAGICIAN 后端、训练、检测器或算法优劣结论。
 详见 [格式与使用](docs/magician-viewbank/README.md)、
 [服务器操作](docs/magician-viewbank/server-operations.md) 和

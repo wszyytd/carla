@@ -1,6 +1,7 @@
 # CARLA 0.10.0 视点库服务器操作
 
-本机完成代码及不依赖 CARLA 的验证。以下实拍步骤仍需在 Linux 服务器执行，不能把本机测试当成真实采集成功。
+本机完成代码及不依赖 CARLA 的验证。首次 v1 实拍记录 17/18 个节点，但 RGB 几乎全黑；修复版需按下面步骤在新 v2 目录重采。
+不要对旧 v1 黑帧批次使用 --resume。见 [首次实拍诊断](first-capture-diagnosis.md)。
 仓库 `/mnt/fast18/sunbo/carla`，环境 `carla10`。只使用专用空闲 CARLA 实例，停掉其他 tick 主控、交通及环境编辑客户端。
 
 ## 1. 同步实现分支
@@ -49,8 +50,8 @@ Python API wheel 必须与 CARLA 0.10.0 对应；安装位置见 [setup-server.m
 ## 3. 离线生成小型计划
 
 ```bash
-python -m src.viewbank plan --config cfg/viewbank/town10_aod_smoke.yaml --output out/viewbank_smoke_plan_v1
-cat out/viewbank_smoke_plan_v1/summary.json
+python -m src.viewbank plan --config cfg/viewbank/town10_aod_smoke.yaml --output out/viewbank_smoke_plan_v2
+cat out/viewbank_smoke_plan_v2/summary.json
 ```
 
 预期 `requested_nodes=18`、`theoretical_edges=66`、`status=plan_only`，图起点有效且非孤立。
@@ -58,7 +59,7 @@ cat out/viewbank_smoke_plan_v1/summary.json
 完整 Pilot 计划可另运行：
 
 ```bash
-python -m src.viewbank plan --config cfg/viewbank/town10_aod_probe.yaml --output out/viewbank_pilot_plan_v1
+python -m src.viewbank plan --config cfg/viewbank/town10_aod_probe.yaml --output out/viewbank_pilot_plan_v2
 ```
 
 预期 72 节点、408 条理论边；72 不是业务代码常量。
@@ -66,7 +67,7 @@ python -m src.viewbank plan --config cfg/viewbank/town10_aod_probe.yaml --output
 ## 4. 采集 18 节点冒烟批次
 
 ```bash
-python -m src.viewbank capture --config cfg/viewbank/town10_aod_smoke.yaml --output data/viewbank/town10_aod_smoke_v1
+python -m src.viewbank capture --config cfg/viewbank/town10_aod_smoke.yaml --output data/viewbank/town10_aod_smoke_v2
 ```
 
 退出码 0 才表示采集端机器验收通过。5 是质量失败，3 是运行/清理失败，2 是配置或文件错误，130 是中断。
@@ -76,10 +77,10 @@ python -m src.viewbank capture --config cfg/viewbank/town10_aod_smoke.yaml --out
 ## 5. 独立 check
 
 ```bash
-python -m src.viewbank check --input data/viewbank/town10_aod_smoke_v1
-cat data/viewbank/town10_aod_smoke_v1/summary.json
-cat data/viewbank/town10_aod_smoke_v1/quality.json
-cat data/viewbank/town10_aod_smoke_v1/scene.json
+python -m src.viewbank check --input data/viewbank/town10_aod_smoke_v2
+cat data/viewbank/town10_aod_smoke_v2/summary.json
+cat data/viewbank/town10_aod_smoke_v2/quality.json
+cat data/viewbank/town10_aod_smoke_v2/scene.json
 ```
 
 成功条件：check 返回 0；`passed=true`、`status=complete`、errors 为空；所有几何有效节点采完；
@@ -100,7 +101,7 @@ python - <<'PY'
 from pathlib import Path
 import json
 import numpy as np
-root = Path('data/viewbank/town10_aod_smoke_v1')
+root = Path('data/viewbank/town10_aod_smoke_v2')
 node = next(json.loads(line) for line in (root/'nodes.jsonl').read_text().splitlines()
             if json.loads(line)['status'] == 'captured')
 d = np.load(root/node['observation']['depth'], allow_pickle=False)
@@ -122,20 +123,20 @@ SIGKILL、机器断电或原生崩溃无法保证服务器清理，必要时重�
 同配置、同环境的续采：
 
 ```bash
-python -m src.viewbank capture --config cfg/viewbank/town10_aod_smoke.yaml --output data/viewbank/town10_aod_smoke_v1 --resume
-python -m src.viewbank check --input data/viewbank/town10_aod_smoke_v1
+python -m src.viewbank capture --config cfg/viewbank/town10_aod_smoke.yaml --output data/viewbank/town10_aod_smoke_v2 --resume
+python -m src.viewbank check --input data/viewbank/town10_aod_smoke_v2
 ```
 
 已通过 receipt/哈希/语义检查的节点保留，部分/损坏目录隔离到 diagnostic/recovery 后重新采集。
 如果出现配置或环境 mismatch，不编辑哈希或强行拼接数据；保留原目录，换新的 scene_id/配置和输出目录。
-OS 输出锁随进程退出自动释放；父目录残留 `.town10_aod_smoke_v1.capture.lock` 文件可保留。
+OS 输出锁随进程退出自动释放；父目录残留 `.town10_aod_smoke_v2.capture.lock` 文件可保留。
 出现锁冲突先检查是否有另一个采集进程；不要删除持锁文件来绕过锁。
 
 ## 8. 冒烟验收后采完整 72 节点
 
 ```bash
-python -m src.viewbank capture --config cfg/viewbank/town10_aod_probe.yaml --output data/viewbank/town10_aod_probe_v1
-python -m src.viewbank check --input data/viewbank/town10_aod_probe_v1
+python -m src.viewbank capture --config cfg/viewbank/town10_aod_probe.yaml --output data/viewbank/town10_aod_probe_v2
+python -m src.viewbank check --input data/viewbank/town10_aod_probe_v2
 ```
 
 该配置包含 yaw ±90° 边。采集遍历顺序不等于飞行路线，静态 AABB 只能近似排除障碍；
@@ -150,7 +151,7 @@ MAGICIAN 的实际 SSH 地址和仓库路径尚未提供，以下命令交互输
 ```bash
 read -r -p 'MAGICIAN SSH 地址（如 user@host）: ' MAGICIAN_HOST
 read -r -p 'MAGICIAN 视点库绝对根目录（不含 scene_id）: ' MAGICIAN_VIEWBANK_ROOT
-rsync -av --progress data/viewbank/town10_aod_probe_v1/ "${MAGICIAN_HOST}:${MAGICIAN_VIEWBANK_ROOT}/town10_aod_probe_v1/"
+rsync -av --progress data/viewbank/town10_aod_probe_v2/ "${MAGICIAN_HOST}:${MAGICIAN_VIEWBANK_ROOT}/town10_aod_probe_v2/"
 ```
 
 目标根目录需事先存在。接收端在带本实现分支的 CARLA 工具仓库、安装本工具离线依赖后，对实际接收路径执行：
@@ -168,3 +169,23 @@ python -m src.viewbank check --input "$RECEIVED_VIEWBANK"
 这批数据只能支持采集、几何与离线接口的工程验收。尚未实现 MAGICIAN 后端、读取审计、
 Random/Greedy/Beam Search 公平对照、Oracle 覆盖评测或多场景泛化；没有训练模型。
 因此不能声称 MAGICIAN 更优秀，也不能用 AABB 合法性冒充真实飞行能力。
+
+
+## 首次实拍修复后的额外质量门
+
+天气名称现在映射到版本 2 的项目固定配置，不把 CARLA 原生预设名称当成已生效的证据。
+ClearNoon/CloudyNoon 的太阳高度为 75°，ClearSunset 为 15°；风/降水为零，散射强度 1、
+Mie 0.03、Rayleigh 0.0331；云量为 5/60。实际天气必须与请求回读匹配，否则在生成相机前失败。
+若服务器天气接口未生效或不支持这些值，不应跳过校验；先排查服务器构建和天气支持。
+这些是本项目配置，不声称与任意 CARLA 版本内置预设逐项一致。
+
+`quality.rgb_mean_min=5.0`、`rgb_mean_max=250.0` 检查 RGB 三通道全图平均值（0–255）。
+稳定但全黑/全白的图像不再成为成功节点。历史 v1 配置缺少这两个键时使用同样的保守默认值，
+解析时不插入键，保留旧配置哈希；新配置显式记录阈值。这只是退化图像质量门，不能替代人工判断曝光。
+若 v2 天气读回正常但 RGB 仍过暗，整批标定手动曝光并另建新目录，不降低阈值掩盖黑帧。
+
+短暂的传感器 frame/timestamp 错配会丢弃该 bundle、重建稳定窗口并继续等待，
+仍受原超时和最大 tick 数约束，不放宽同帧/时间戳阈值。拒绝次数和最后一组原始帧号/时间戳写入
+camera 稳定性诊断；持续错配仍记失败。
+局部旋转矩阵的离线重算使用绝对 1e-10 容差以容纳 Linux/Windows 三角函数末位差异，
+实际请求/拍摄位姿误差门没有放宽。

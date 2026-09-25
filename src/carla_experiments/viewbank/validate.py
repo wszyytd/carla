@@ -14,6 +14,15 @@ from .geometry import graph_report, local_pose, point_reason, pose_matrix, valid
 from .grid import build_grid, start_node_id
 
 
+class SensorAlignmentError(ValueError):
+    """A transient bundle may be dropped without weakening accepted-frame requirements."""
+
+
+def _aligned(condition, message):
+    if not condition:
+        raise SensorAlignmentError(message)
+
+
 def _require(condition, message):
     if not condition:
         raise ValueError(message)
@@ -56,10 +65,10 @@ def check_camera_model(node, cfg):
 def validate_bundle(bundle, node, cfg):
     names = {"rgb", "depth"} | ({"instance"} if cfg["camera"]["instance"] else set())
     _require(set(bundle) == names, "sensor channels mismatch")
-    _require(len({im.frame for im in bundle.values()}) == 1, "sensor frame mismatch")
+    _aligned(len({im.frame for im in bundle.values()}) == 1, "sensor frame mismatch")
     times = [im.timestamp for im in bundle.values()]
-    _require(all(math.isfinite(t) and t >= 0 for t in times), "nonfinite sensor timestamp")
-    _require(
+    _aligned(all(math.isfinite(t) and t >= 0 for t in times), "nonfinite sensor timestamp")
+    _aligned(
         max(times) - min(times) <= cfg["quality"]["timestamp_error_seconds"],
         "sensor timestamp mismatch",
     )
@@ -99,10 +108,14 @@ def inspect_camera_files(folder, node, cfg):
         _require(camera[key] == node[key], f"camera/node {key} mismatch")
     _require(camera["depth_semantics"] == DEPTH_SEMANTICS, "depth semantics mismatch")
     errors = _check_pose(camera["actual_transform"], node["requested_transform"], cfg)
-    _require(
-        camera["local_pose"] == local_pose(camera["actual_transform"], cfg["grid"]["origin_m"]),
-        "local pose mismatch",
-    )
+    expected_local = local_pose(camera["actual_transform"], cfg["grid"]["origin_m"])
+    for key, expected in expected_local.items():
+        actual = np.asarray(camera["local_pose"][key], dtype=float)
+        _require(
+            actual.shape == np.asarray(expected).shape
+            and np.allclose(actual, expected, atol=1e-10, rtol=0),
+            "local pose mismatch",
+        )
     matrix = np.asarray(camera["sensor_to_world"])
     _require(
         matrix.shape == (4, 4)
@@ -150,6 +163,14 @@ def inspect_camera_files(folder, node, cfg):
                 f"{name} dimensions/format mismatch",
             )
             _require(image.mode == ("L" if name == "mask.png" else "RGB"), f"{name} mode mismatch")
+    with Image.open(folder / "rgb.png") as image:
+        rgb_mean = float(np.asarray(image).mean())
+    low = cfg["quality"].get("rgb_mean_min", 5.0)
+    high = cfg["quality"].get("rgb_mean_max", 250.0)
+    _require(
+        low <= rgb_mean <= high,
+        f"RGB mean {rgb_mean:.8f} outside [{low}, {high}]: dark/overexposed frame",
+    )
     depth = np.load(folder / "depth.npy", allow_pickle=False)
     _require(depth.dtype == np.dtype("float32"), "depth dtype must be float32")
     _require(depth.shape == (height, width), "depth dimensions mismatch")
@@ -187,6 +208,7 @@ def inspect_dataset(root, require_complete=True):
         "rejected": 0,
         "graph": {},
         "node_quality": {},
+        "rgb_quality_limits": {"rgb_mean_min": 5.0, "rgb_mean_max": 250.0},
     }
     errors = report["errors"]
     try:
@@ -194,6 +216,10 @@ def inspect_dataset(root, require_complete=True):
         _require(scene["schema_version"] == 1, "unsupported schema_version")
         cfg = parse_config(read_json(root / "config.resolved.json"))
         report["planned"] = len(build_grid(cfg)[0])
+        report["rgb_quality_limits"] = {
+            key: cfg["quality"].get(key, default)
+            for key, default in (("rgb_mean_min", 5.0), ("rgb_mean_max", 250.0))
+        }
         _require(scene["config_sha256"] == config_hash(cfg), "config checksum mismatch")
         _require(
             scene["scene_id"] == cfg["scene_id"] and scene["camera_model"] == cfg["camera"],
@@ -343,8 +369,22 @@ def check_dataset(root):
             quality["passed"] is True and quality["status"] == "complete",
             "quality incomplete/failed",
         )
-        for key in ("planned", "captured", "rejected", "graph", "node_quality"):
+        for key in ("planned", "captured", "rejected", "graph"):
             _require(quality[key] == report[key], f"quality {key} inconsistent")
+        _require(
+            set(quality["node_quality"]) == set(report["node_quality"]),
+            "quality node_quality IDs inconsistent",
+        )
+        for node_id, expected in report["node_quality"].items():
+            stored = quality["node_quality"][node_id]
+            _require(set(stored) == set(expected), "quality node_quality fields inconsistent")
+            _require(
+                all(
+                    math.isclose(stored[key], value, abs_tol=1e-10, rel_tol=0)
+                    for key, value in expected.items()
+                ),
+                "quality node_quality inconsistent",
+            )
     except (ValueError, OSError, KeyError, TypeError) as error:
         report["errors"].append(str(error))
     report["passed"] = not report["errors"]

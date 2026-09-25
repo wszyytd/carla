@@ -28,7 +28,12 @@ FIELDS = {
 
 def _fields(value, section):
     expected = set(FIELDS[section].split())
-    if not isinstance(value, dict) or set(value) != expected:
+    optional = {"rgb_mean_min", "rgb_mean_max"} if section == "quality" else set()
+    if (
+        not isinstance(value, dict)
+        or not expected <= set(value)
+        or not set(value) <= expected | optional
+    ):
         raise ValueError(f"{section}: requires exactly {sorted(expected)}")
 
 
@@ -122,6 +127,11 @@ def parse_config(raw):
         raise ValueError("ROI minimum must be below maximum")
     if cfg["quality"]["depth_min_m"] >= cfg["quality"]["depth_max_m"]:
         raise ValueError("depth_min_m must be below depth_max_m")
+    for key in ("rgb_mean_min", "rgb_mean_max"):
+        if key in cfg["quality"]:
+            cfg["quality"][key] = _number(cfg["quality"][key], key, 0, 255)
+    if cfg["quality"].get("rgb_mean_min", 5.0) >= cfg["quality"].get("rgb_mean_max", 250.0):
+        raise ValueError("rgb_mean_min must be below rgb_mean_max")
     exposure = cfg["camera"]["exposure"]
     if exposure["exposure_mode"] != "manual" or exposure["motion_blur_intensity"] != 0:
         raise ValueError("fixed manual exposure and zero motion blur required")

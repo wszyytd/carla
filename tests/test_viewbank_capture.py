@@ -337,3 +337,56 @@ def test_resume_hashes_quarantined_partial_manifest_files(tmp_path):
     from src.carla_experiments.viewbank.validate import check_dataset
 
     assert check_dataset(root)["passed"]
+
+
+def test_zero_native_noon_preset_does_not_create_zero_sun_scene(tmp_path):
+    world = CaptureWorld()
+    carla = simulator(world)
+    carla.WeatherParameters.ClearNoon.sun_altitude_angle = 0
+    root = tmp_path / "weather-profile"
+    assert api().capture(carla, small_config(), root)["passed"]
+    from src.carla_experiments.viewbank.artifacts import read_json
+
+    assert read_json(root / "scene.json")["actual_weather"]["sun_altitude_angle"] == 75
+
+
+def test_unapplied_weather_fails_before_spawning_sensors(tmp_path):
+    world = CaptureWorld()
+    world.set_weather = lambda value: None
+    result = api().capture(simulator(world), small_config(), tmp_path / "weather-failure")
+    assert not result["passed"] and not world.actors
+    assert "weather" in " ".join(result["errors"])
+
+
+@pytest.mark.parametrize("persistent", [False, True])
+def test_timestamp_mismatch_retries_without_relaxing_tolerance(tmp_path, persistent):
+    world = CaptureWorld()
+    spawn = world.spawn_actor
+
+    def mismatching_spawn(bp, pose):
+        sensor = spawn(bp, pose)
+        if "depth" in bp.id:
+            listen = sensor.listen
+
+            def wrapped(callback):
+                count = 0
+
+                def shifted(image):
+                    nonlocal count
+                    count += 1
+                    if persistent or count == 1:
+                        image.timestamp += 0.01
+                    callback(image)
+
+                listen(shifted)
+
+            sensor.listen = wrapped
+        return sensor
+
+    world.spawn_actor = mismatching_spawn
+    cfg = small_config()
+    cfg["capture"]["max_frame_ticks"] = 40
+    result = api().capture(simulator(world), cfg, tmp_path / "timestamp")
+    assert result["passed"] is not persistent
+    if persistent:
+        assert "timestamp" in (tmp_path / "timestamp/capture.log").read_text()

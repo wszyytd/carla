@@ -1,5 +1,6 @@
 """CARLA-only boundary, injected for offline tests. No module-level CARLA import."""
 
+import math
 import os
 import random
 import time
@@ -20,7 +21,7 @@ from ..sensors import configure_required_attributes, listen_to_inbox
 from .artifacts import finalize, initialize, write_frame, write_json, write_jsonl
 from .config import config_hash, parse_config
 from .geometry import GEOMETRY_SCOPE, point_reason, validate_geometry
-from .validate import validate_bundle
+from .validate import SensorAlignmentError, validate_bundle
 
 
 @contextmanager
@@ -84,6 +85,26 @@ def camera_attributes(cfg, name):
     return attributes
 
 
+def weather_profile(name):
+    """Versioned project profiles; never trust a native preset name as readback proof."""
+    return {
+        "cloudiness": 60.0 if name == "CloudyNoon" else 5.0,
+        "precipitation": 0.0,
+        "precipitation_deposits": 0.0,
+        "wind_intensity": 0.0,
+        "sun_azimuth_angle": 0.0,
+        "sun_altitude_angle": 15.0 if name == "ClearSunset" else 75.0,
+        "fog_density": 0.0,
+        "fog_distance": 1000.0,
+        "fog_falloff": 0.1,
+        "wetness": 0.0,
+        "scattering_intensity": 1.0,
+        "mie_scattering_scale": 0.03,
+        "rayleigh_scattering_scale": 0.0331,
+        "dust_storm": 0.0,
+    }
+
+
 def spawn_sensors(world, carla, cfg, actors, inbox, pose):
     channels = {"rgb": "sensor.camera.rgb", "depth": "sensor.camera.depth"}
     if cfg["camera"]["instance"]:
@@ -116,6 +137,8 @@ def await_bundle(world, inbox, desired, node, cfg, min_frame):
     deadline = time.monotonic() + cfg["capture"]["timeout_seconds"]
     gate = StabilityGate(cfg["capture"]["warmup_seconds"], cfg["quality"]["stability_threshold"])
     quality = cfg["quality"]
+    rejected = 0
+    last_alignment_error = None
     for _ in range(cfg["capture"]["max_frame_ticks"]):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -134,11 +157,29 @@ def await_bundle(world, inbox, desired, node, cfg, min_frame):
             ),
         )
         for bundle in ready:
-            validate_bundle(bundle, node, cfg)
+            try:
+                validate_bundle(bundle, node, cfg)
+            except SensorAlignmentError as failure:
+                rejected += 1
+                last_alignment_error = {
+                    "reason": str(failure),
+                    "frames": {key: int(im.frame) for key, im in bundle.items()},
+                    "timestamps": {key: repr(im.timestamp) for key, im in bundle.items()},
+                }
+                # A valid frame after this gap must establish stability again.
+                gate = StabilityGate(
+                    cfg["capture"]["warmup_seconds"], quality["stability_threshold"]
+                )
+                continue
             if gate.add(bundle["rgb"]):
-                return bundle, gate.diagnostics
+                return bundle, {
+                    **gate.diagnostics,
+                    "rejected_alignment_bundles": rejected,
+                    "last_alignment_error": last_alignment_error,
+                }
     raise TimeoutError(
-        f"no stable same-frame RGB-D at requested pose; stability={gate.diagnostics}"
+        f"no stable same-frame RGB-D at requested pose; stability={gate.diagnostics}; "
+        f"rejected_alignment_bundles={rejected}; last_alignment_error={last_alignment_error}"
     )
 
 
@@ -176,12 +217,22 @@ def _capture(carla, cfg, root, resume, report):
         np.random.seed(cfg["scene"]["seed"])
         settings, weather = world.get_settings(), world.get_weather()
         apply_camera_capture_settings(world, cfg["scene"]["fixed_delta_seconds"])
-        preset = getattr(carla.WeatherParameters, cfg["scene"]["weather"])
+        requested_weather = weather_profile(cfg["scene"]["weather"])
         fixed_weather = world.get_weather()
-        for key, value in _weather(SimpleNamespace(get_weather=lambda: preset)).items():
+        for key, value in requested_weather.items():
             setattr(fixed_weather, key, value)
-        fixed_weather.wind_intensity = 0.0
         world.set_weather(fixed_weather)
+        actual_weather = _weather(world)
+        if any(
+            key not in actual_weather
+            or not math.isclose(actual_weather[key], value, abs_tol=1e-4, rel_tol=0)
+            for key, value in requested_weather.items()
+        ):
+            raise RuntimeError(
+                f"weather readback mismatch: requested={requested_weather}, "
+                f"actual={actual_weather}; check server weather support"
+            )
+        scene["weather_request"] = requested_weather
         lights = [
             (light, light.is_frozen(), light.get_state())
             for light in world.get_actors().filter("traffic.traffic_light*")
@@ -198,6 +249,7 @@ def _capture(carla, cfg, root, resume, report):
         }
         environment = {
             "versions": versions,
+            "weather_profile_version": 2,
             "map": map_name,
             "weather": _weather(world),
             "geometry_sha256": config_hash(boxes),

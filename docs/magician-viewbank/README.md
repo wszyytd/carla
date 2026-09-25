@@ -1,7 +1,7 @@
 # MAGICIAN 离线 RGB-D 视点库
 
 当前实现范围是 CARLA 数据采集端：`plan`、`capture`、`check`。本机离线测试使用合成图像和
-模拟 CARLA 边界；**服务器 CARLA 0.10.0 实拍待运行**。未来的 `ViewBankBackend`、访问审计、
+模拟 CARLA 边界；**首次实拍未通过，修复版待服务器重采**。未来的 `ViewBankBackend`、访问审计、
 覆盖评测和 MAGICIAN 策略不在本轮实现范围。[需求分析](requirements.md) 中跨仓库的后续验收门仍然保留。
 
 ## 命令
@@ -10,8 +10,8 @@
 
 ```bash
 python -m src.viewbank plan --config cfg/viewbank/town10_aod_probe.yaml --output out/viewbank_plan
-python -m src.viewbank capture --config cfg/viewbank/town10_aod_probe.yaml --output data/viewbank/town10_aod_probe_v1
-python -m src.viewbank check --input data/viewbank/town10_aod_probe_v1
+python -m src.viewbank capture --config cfg/viewbank/town10_aod_probe.yaml --output data/viewbank/town10_aod_probe_v2
+python -m src.viewbank check --input data/viewbank/town10_aod_probe_v2
 ```
 
 `plan` 和 `check` 不导入 CARLA、不连接服务器。`plan` 输出 `config.resolved.json`、
@@ -20,6 +20,7 @@ python -m src.viewbank check --input data/viewbank/town10_aod_probe_v1
 
 `capture` 需要专用、无背景交通的 CARLA 实例和唯一 tick 主控；不自动换地图或删除外部 Actor。
 启动前停掉交通、scout、AOD、path_cost 和其他改动世界的客户端。
+本次修复前的 v1 黑帧批次应保留作诊断，改用 v2 新目录重采。
 同目录重试必须显式添加 `--resume`，配置内容及已记录环境指纹必须一致。
 
 退出码：`0` 成功；`2` 配置/文件/输出锁错误；`3` CARLA 导入、连接、运行或清理失败；
@@ -29,7 +30,7 @@ python -m src.viewbank check --input data/viewbank/town10_aod_probe_v1
 
 ## 配置和图
 
-所有配置字段必须显式给出，未知字段、重复 YAML key、非有限数字、非法类型、重复格点和越界起点均拒绝。
+核心配置字段必须显式给出，未知字段、重复 YAML key、非有限数字、非法类型、重复格点和越界起点均拒绝。
 配置哈希是规范化 JSON 的 SHA256（排序 key、紧凑 UTF-8），不是 YAML 字节哈希；注释和数值等价的浮点写法不影响续采。
 顶层组为 `client/scene/grid/camera/graph/capture/quality`，示例配置是完整字段参考。
 
@@ -141,3 +142,23 @@ PyTorch3D 约定转换及 MAGICIAN 后端仍待实现，不能仅凭图像外观
 禁止进入默认 planner observation。本阶段不生成覆盖增益/Oracle，不实现后端读取审计。
 
 服务器完整步骤见 [server-operations.md](server-operations.md)。
+
+
+## 首次实拍修复后的额外质量门
+
+天气名称现在映射到版本 2 的项目固定配置，不把 CARLA 原生预设名称当成已生效的证据。
+ClearNoon/CloudyNoon 的太阳高度为 75°，ClearSunset 为 15°；风/降水为零，散射强度 1、
+Mie 0.03、Rayleigh 0.0331；云量为 5/60。实际天气必须与请求回读匹配，否则在生成相机前失败。
+若服务器天气接口未生效或不支持这些值，不应跳过校验；先排查服务器构建和天气支持。
+这些是本项目配置，不声称与任意 CARLA 版本内置预设逐项一致。
+
+`quality.rgb_mean_min=5.0`、`rgb_mean_max=250.0` 检查 RGB 三通道全图平均值（0–255）。
+稳定但全黑/全白的图像不再成为成功节点。历史 v1 配置缺少这两个键时使用同样的保守默认值，
+解析时不插入键，保留旧配置哈希；新配置显式记录阈值。这只是退化图像质量门，不能替代人工判断曝光。
+若 v2 天气读回正常但 RGB 仍过暗，整批标定手动曝光并另建新目录，不降低阈值掩盖黑帧。
+
+短暂的传感器 frame/timestamp 错配会丢弃该 bundle、重建稳定窗口并继续等待，
+仍受原超时和最大 tick 数约束，不放宽同帧/时间戳阈值。拒绝次数和最后一组原始帧号/时间戳写入
+camera 稳定性诊断；持续错配仍记失败。
+局部旋转矩阵的离线重算使用绝对 1e-10 容差以容纳 Linux/Windows 三角函数末位差异，
+实际请求/拍摄位姿误差门没有放宽。
