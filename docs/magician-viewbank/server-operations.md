@@ -78,6 +78,54 @@ python -m src.viewbank doctor --config cfg/viewbank/town10_aod_smoke.yaml
 如果 v3 报 dark/overexposed frame，下一步应在相同地图、相同视点下标定整批共享的相机曝光/渲染设置，
 保留失败日志并换新配置/目录，不应重装地图天气资源或降低黑帧阈值。
 
+## 2b. v3 黑帧：先做一次曝光对照，再决定完整批次参数
+
+本机只读检查用户的 v3：18/18 因 RGB 退化失败，均值约 0.00126–0.00606，98 个文件哈希全匹配。
+天气预检已通过；起点无效、图断开和部分帧是全部节点采集失败的后果，不能用修改图消除。
+`frames/.n_XXXX.tmp/` 保留质量检查前的原始文件，没有被原子提交成成功节点。
+
+源码 [0.10.0 ActorBlueprintFunctionLibrary.cpp](https://github.com/carla-simulator/carla/blob/0.10.0/Unreal/CarlaUnreal/Plugins/Carla/Source/Carla/Actor/ActorBlueprintFunctionLibrary.cpp)
+定义的曝光数值默认值为 ISO 300000、shutter_speed 15（倒数秒）、fstop 9.8、exposure_compensation 1.5。
+当前 ISO 100/快门 200/f2.8/补偿 0 没有经过 UE5 实拍标定，不能照搬真实日间摄影经验。
+原生默认模式是 histogram；本对照所有候选继续明确使用 manual，以便最终整批固定同一曝光。
+源码依据不等于某个候选已通过实拍，生产 YAML 暂不盲目改值。
+
+在唯一 tick 主控、无外部车辆/行人的 CARLA 实例运行：
+
+```bash
+cd /mnt/fast18/sunbo/carla
+conda activate carla10
+python -m src.viewbank calibrate --config cfg/viewbank/town10_aod_smoke.yaml --output out/viewbank_exposure_v1
+```
+
+无需先重采 18/72 点。此命令从原配置起点选择一个空间邻居，在同样两个位置顺序测试四组手动曝光：
+
+| case | ISO | shutter_speed | fstop | compensation |
+|---|---:|---:|---:|---:|
+| baseline | 原配置 | 原配置 | 原配置 | 原配置 |
+| ue5_low | 300000 | 15 | 9.8 | -0.5 |
+| ue5_default | 300000 | 15 | 9.8 | 1.5 |
+| ue5_high | 300000 | 15 | 9.8 | 3.5 |
+
+分辨率/FOV/姿态/天气模式/随机种子/质量阈值相同；候选不自动替换正式配置。
+它直接复用 capture，保留每组同帧 RGB-D、原始实例、相机参数、有效/失败状态、哈希和日志。
+`cases/` 中每组只是两节点诊断数据，不能作为完整 MAGICIAN 库。
+
+查看或整体复制回本机：
+
+- `report.html`：原始 RGB 并排显示，不做增亮或后期校正；用浏览器打开，须保留 cases 相对目录。
+- `report.json`：RGB 均值、像素亮度百分位、近黑比例、接近饱和的通道比例、实际位姿和各组采集结果。
+- `cases/<case>/capture.log`、`scene.json`、`frames/`：采集证据；`.tmp` 图像明确 rejected，不能当成功帧。
+- `configs/<case>.yaml`：恢复完整输入网格的候选配置，可供人工选定后使用，scene_id 已与 v3 分开。
+
+输出目录存在则拒绝覆盖；对照中断不续跑整个对照目录，换新输出目录。
+普通图像质量失败（退出 5）仍继续后续候选；连接/清理错误或中断停止并保存已有报告。
+命令返回 0 仅代表至少一组通过两点机器质量门；不代表完成曝光标定或整库验收，selection 始终为 null。
+两点均无严重欠曝/过曝且纹理清晰后，人工选定一组，在新的数据目录运行完整网格 capture/check。
+所有后续策略使用同一份选定配置。如果四组仍黑或都过曝，把整个对照目录交回分析，
+不要关闭质量门，也不要再重复旧 v3 全批。后续 UE5 开发版的 post_process_profile 接口与 0.10.0 tag 不同，
+当前采集已确认 manual/iso 等属性存在，不以其他版本的论坛参数替换运行时证据。
+
 ## 3. 离线生成小型计划
 
 ```bash

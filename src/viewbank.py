@@ -39,7 +39,7 @@ def plan(cfg, output):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    for command in ("plan", "capture"):
+    for command in ("plan", "capture", "calibrate"):
         sub = commands.add_parser(command)
         sub.add_argument("--config", type=Path, required=True)
         sub.add_argument("--output", type=Path, required=True)
@@ -60,6 +60,10 @@ def main(argv=None):
         cfg = load_config(args.config)
         if args.command == "plan":
             result = plan(cfg, args.output)
+        elif args.command == "calibrate":
+            from .carla_experiments.viewbank.calibrate import calibrate
+
+            result = calibrate(importlib.import_module("carla"), cfg, args.output)
         elif args.command == "doctor":
             from .carla_experiments.viewbank.capture import doctor
 

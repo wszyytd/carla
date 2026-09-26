@@ -176,3 +176,16 @@ python -m src.viewbank doctor --config cfg/viewbank/town10_aod_smoke.yaml
 `MapDefaultDaylight` 配置下，0.10.0/Town10HD_Opt/`weather_enabled=false` 是支持的固定日间环境。
 `actual_weather` 与 `weather_request` 为 null，原始占位读数隔离在 diagnostic 字段；机器检查不伪造太阳位置。
 新默认 scene_id 为 v3，不能续采旧 v2 配置；见 [服务器操作](server-operations.md)。
+
+
+## 曝光对照
+
+v3 若通过天气预检但全部 RGB 退化，先运行：
+
+```bash
+python -m src.viewbank calibrate --config cfg/viewbank/town10_aod_smoke.yaml --output out/viewbank_exposure_v1
+```
+
+四组曝光 × 同样两个相邻视点，复用 capture。report.html/report.json 和各组原始图像供人工比较；
+不自动选参数、不放宽质量门。候选完整网格 YAML 在 configs/；新的 scene_id 防止与旧 v3 混合。
+详细参数依据和操作见 [服务器操作](server-operations.md)。

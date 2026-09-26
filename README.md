@@ -159,3 +159,5 @@ CARLA 0.10.0 发行包继续独立放在服务器现有目录：
 服务器的 CARLA 0.10.0 环境完成首次验收；Reactive、前瞻规划和 Oracle 尚未实现。
 
 CARLA 0.10.0 视点库默认使用显式地图固定日间模式（MapDefaultDaylight/v3）；天气 API 不可用不等于安装损坏。操作与限制见 [视点库服务器说明](docs/magician-viewbank/server-operations.md)。
+
+视点库 RGB 过暗时，可运行 `python -m src.viewbank calibrate --config cfg/viewbank/town10_aod_smoke.yaml --output out/viewbank_exposure_v1` 做固定双点曝光对照；见 [服务器说明 2b](docs/magician-viewbank/server-operations.md)。
