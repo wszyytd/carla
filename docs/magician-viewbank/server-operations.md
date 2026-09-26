@@ -1,6 +1,6 @@
 # CARLA 0.10.0 视点库服务器操作
 
-本机完成代码及不依赖 CARLA 的验证。首次 v1 实拍记录 17/18 个节点，但 RGB 几乎全黑；修复版需按下面步骤在新 v2 目录重采。
+本机完成代码及不依赖 CARLA 的验证。首次 v1 实拍记录 17/18 个节点，但 RGB 几乎全黑；修复版需按下面步骤在新 v3 固定日间目录重采。
 不要对旧 v1 黑帧批次使用 --resume。见 [首次实拍诊断](first-capture-diagnosis.md)。
 仓库 `/mnt/fast18/sunbo/carla`，环境 `carla10`。只使用专用空闲 CARLA 实例，停掉其他 tick 主控、交通及环境编辑客户端。
 
@@ -47,56 +47,42 @@ python -m src.smoke --config cfg/simulator.yaml
 Python API wheel 必须与 CARLA 0.10.0 对应；安装位置见 [setup-server.md](../setup-server.md)。
 不要使用 no-rendering 模式替代 RenderOffScreen。
 
-## 2a. 先检查当前地图的天气能力（只读）
+## 2a. CARLA 0.10.0 固定日间模式与只读预检
+
+**2026-09-26 更正：天气 API 不可用是 0.10.0 发布版的已知限制，不能据此判定安装损坏。**
+[官方发布说明](https://carla.org/2024/12/19/release-0.10.0/) 明确说明天气固定为日间，云、雨、雾和太阳位置不能修改。
+此前以“缺少天气 Actor”要求修补地图资产过于武断，已由下面的显式模式替代。
+
+当前两份配置使用 `scene.weather: MapDefaultDaylight`，scene_id 为 v3。
+该模式只接受客户端/服务器均为 0.10.0、Town10HD_Opt 且 `is_weather_enabled()=false` 的环境。
+这不是自动忽略天气错误：ClearNoon 等原有 API 预设仍要求天气能力存在且数值回读匹配。
+固定日间模式不调用 set_weather，也不在清理时伪装恢复天气；它沿用同一个服务器/地图构建内置的照明。
 
 ```bash
 python -m src.viewbank doctor --config cfg/viewbank/town10_aod_smoke.yaml
 ```
 
-此命令只读，不切图、不推进世界、不设置天气、不生成传感器或数据目录。
-`passed=true` 只表示地图/天气能力/动态 Actor 预检通过，不代表 RGB 或天气设置已经验收。
+预期 `passed=true`、`weather_enabled=false`、`lighting_mode=map_default_daylight`。
+命令只读，不切图、不推进世界、不创建 Actor。首次 Connection refused 表示当时服务器未监听或尚未就绪，
+待 CARLA 完成启动再重试 doctor。若版本或地图不同，先核对实际环境，不自动放行。
 
-- `weather_enabled=false`：当前地图没有 CARLA 天气 Actor。不要反复 capture、调曝光或关闭天气检查。
-- `weather_enabled=null`：Python API 没有 `is_weather_enabled`；检查输出的 wheel 路径和客户端/服务器版本，安装发行包自带 0.10.0 wheel。
-- `weather_enabled=true` 但 capture 仍报 mismatch：采集器最多推进 20 帧，并受客户端超时限制等待异步设置；仍不一致则保留 requested/actual，排查其他天气控制脚本及服务器日志。
+元数据中的 `actual_weather`、`weather_request` 和 `environment.weather` 为 null；
+`preflight.diagnostic_weather_api_return` 保留原始占位回读，仅作诊断。
+全零加 Rayleigh=0.0331 的返回值不能解释为实际太阳高度 0°，也不能用于解释黑帧。
+`lighting_parameters_observable=false` 明确表示无法由此 API 证明数值照明条件，
+`lighting_review=pending` 要求人为查看同一批的画面。环境指纹仍记录版本、地图、相机和几何，
+但它不是完整地图资源哈希，不能检测任意编辑器改灯；不要混用不同地图构建或外部照明控制脚本。
 
-CARLA 0.10.0 的无天气 Actor 路径会返回除 Rayleigh=0.0331 外全零的默认天气，
-与 2026-09-25 服务器返回值一致；仅凭这一数值模式仍不能代替 `is_weather_enabled()` 的确认。
-`set_weather()` 是异步 RPC，因此没有 Python 异常不能证明设置成功。
-官方实现见 [服务端天气接口](https://github.com/carla-simulator/carla/blob/0.10.0/Unreal/CarlaUnreal/Plugins/Carla/Source/Carla/Server/CarlaServer.cpp)、
-[客户端异步设置](https://github.com/carla-simulator/carla/blob/0.10.0/LibCarla/source/carla/client/detail/Client.cpp)。
-
-如果返回 false，在 CARLA 发行包目录查日志（不改文件）：
-
-```bash
-cd /mnt/fast18/sunbo/CARLA-0.10.0/Carla-0.10.0-Linux-Shipping
-find . -type f -name '*.log' -path '*/Saved/Logs/*' -exec grep -nE 'Missing weather class|weather is disabled|weather actor|Failed to load|Failed to find' {} +
-```
-
-先保留 doctor 输出和相关日志。确认专用实例没有其他任务后，可以按第 2 节重新加载同一 Town10 地图，
-再跑 doctor；重新加载不保证修复缺失资源。如果仍 false，需要检查该地图使用的 CARLA GameMode 是否配置了
-WeatherClass，或关卡中是否存在 CARLA AWeather 派生蓝图，以及对应资源是否被正确打包。
-源码 [CarlaGameModeBase.cpp](https://github.com/carla-simulator/carla/blob/0.10.0/Unreal/CarlaUnreal/Plugins/Carla/Source/Carla/Game/CarlaGameModeBase.cpp)
-会寻找已有天气 Actor，否则尝试通过 WeatherClass 创建。Python 没有一个通用开关可以修补缺失的天气蓝图。
-不要为了让检查变绿而未经确认切到不同地图，旧 ROI 和 AABB 必须继续对应真实地图。
-
-本次 v2 在传感器生成前失败，captured=0；修复天气能力后可对**这个空 v2 批次**使用：
-
-```bash
-cd /mnt/fast18/sunbo/carla
-python -m src.viewbank capture --config cfg/viewbank/town10_aod_smoke.yaml --output data/viewbank/town10_aod_smoke_v2 --resume
-python -m src.viewbank check --input data/viewbank/town10_aod_smoke_v2
-```
-
-这不适用于旧 v1 黑帧批次。若修改配置则改 scene_id/输出目录，不能混合续采。
-早期失败的 `scene.json` 保留版本、preflight 和 weather_application（若已尝试设置）；
-`check` 同时展示原始错误。`missing CARLA environment provenance` 是未完成环境初始化的后果，不是另一项独立根因。
+使用新 v3 目录；旧 v1 黑帧批次和旧 v2 ClearNoon 配置均保留作诊断。新旧配置哈希不同，禁止续采混合。
+**固定日间适配没有解决或掩盖曝光问题**：RGB 全图均值仍须在 5–250，稳定黑帧仍会失败。
+如果 v3 报 dark/overexposed frame，下一步应在相同地图、相同视点下标定整批共享的相机曝光/渲染设置，
+保留失败日志并换新配置/目录，不应重装地图天气资源或降低黑帧阈值。
 
 ## 3. 离线生成小型计划
 
 ```bash
-python -m src.viewbank plan --config cfg/viewbank/town10_aod_smoke.yaml --output out/viewbank_smoke_plan_v2
-cat out/viewbank_smoke_plan_v2/summary.json
+python -m src.viewbank plan --config cfg/viewbank/town10_aod_smoke.yaml --output out/viewbank_smoke_plan_v3
+cat out/viewbank_smoke_plan_v3/summary.json
 ```
 
 预期 `requested_nodes=18`、`theoretical_edges=66`、`status=plan_only`，图起点有效且非孤立。
@@ -104,7 +90,7 @@ cat out/viewbank_smoke_plan_v2/summary.json
 完整 Pilot 计划可另运行：
 
 ```bash
-python -m src.viewbank plan --config cfg/viewbank/town10_aod_probe.yaml --output out/viewbank_pilot_plan_v2
+python -m src.viewbank plan --config cfg/viewbank/town10_aod_probe.yaml --output out/viewbank_pilot_plan_v3
 ```
 
 预期 72 节点、408 条理论边；72 不是业务代码常量。
@@ -112,20 +98,20 @@ python -m src.viewbank plan --config cfg/viewbank/town10_aod_probe.yaml --output
 ## 4. 采集 18 节点冒烟批次
 
 ```bash
-python -m src.viewbank capture --config cfg/viewbank/town10_aod_smoke.yaml --output data/viewbank/town10_aod_smoke_v2
+python -m src.viewbank capture --config cfg/viewbank/town10_aod_smoke.yaml --output data/viewbank/town10_aod_smoke_v3
 ```
 
 退出码 0 才表示采集端机器验收通过。5 是质量失败，3 是运行/清理失败，2 是配置或文件错误，130 是中断。
-默认天气 ClearNoon、零风、手动曝光、无动态车辆/行人；交通灯固定红灯。
+默认使用地图内置日间照明、手动曝光、无动态车辆/行人；交通灯固定红灯。天气数值和风不可由 API 观测。
 没有生成 AOD 三类目标车，也不计算发现率。固定高度是世界 z，不能当成实测离地高度。
 
 ## 5. 独立 check
 
 ```bash
-python -m src.viewbank check --input data/viewbank/town10_aod_smoke_v2
-cat data/viewbank/town10_aod_smoke_v2/summary.json
-cat data/viewbank/town10_aod_smoke_v2/quality.json
-cat data/viewbank/town10_aod_smoke_v2/scene.json
+python -m src.viewbank check --input data/viewbank/town10_aod_smoke_v3
+cat data/viewbank/town10_aod_smoke_v3/summary.json
+cat data/viewbank/town10_aod_smoke_v3/quality.json
+cat data/viewbank/town10_aod_smoke_v3/scene.json
 ```
 
 成功条件：check 返回 0；`passed=true`、`status=complete`、errors 为空；所有几何有效节点采完；
@@ -146,7 +132,7 @@ python - <<'PY'
 from pathlib import Path
 import json
 import numpy as np
-root = Path('data/viewbank/town10_aod_smoke_v2')
+root = Path('data/viewbank/town10_aod_smoke_v3')
 node = next(json.loads(line) for line in (root/'nodes.jsonl').read_text().splitlines()
             if json.loads(line)['status'] == 'captured')
 d = np.load(root/node['observation']['depth'], allow_pickle=False)
@@ -168,20 +154,20 @@ SIGKILL、机器断电或原生崩溃无法保证服务器清理，必要时重�
 同配置、同环境的续采：
 
 ```bash
-python -m src.viewbank capture --config cfg/viewbank/town10_aod_smoke.yaml --output data/viewbank/town10_aod_smoke_v2 --resume
-python -m src.viewbank check --input data/viewbank/town10_aod_smoke_v2
+python -m src.viewbank capture --config cfg/viewbank/town10_aod_smoke.yaml --output data/viewbank/town10_aod_smoke_v3 --resume
+python -m src.viewbank check --input data/viewbank/town10_aod_smoke_v3
 ```
 
 已通过 receipt/哈希/语义检查的节点保留，部分/损坏目录隔离到 diagnostic/recovery 后重新采集。
 如果出现配置或环境 mismatch，不编辑哈希或强行拼接数据；保留原目录，换新的 scene_id/配置和输出目录。
-OS 输出锁随进程退出自动释放；父目录残留 `.town10_aod_smoke_v2.capture.lock` 文件可保留。
+OS 输出锁随进程退出自动释放；父目录残留 `.town10_aod_smoke_v3.capture.lock` 文件可保留。
 出现锁冲突先检查是否有另一个采集进程；不要删除持锁文件来绕过锁。
 
 ## 8. 冒烟验收后采完整 72 节点
 
 ```bash
-python -m src.viewbank capture --config cfg/viewbank/town10_aod_probe.yaml --output data/viewbank/town10_aod_probe_v2
-python -m src.viewbank check --input data/viewbank/town10_aod_probe_v2
+python -m src.viewbank capture --config cfg/viewbank/town10_aod_probe.yaml --output data/viewbank/town10_aod_probe_v3
+python -m src.viewbank check --input data/viewbank/town10_aod_probe_v3
 ```
 
 该配置包含 yaw ±90° 边。采集遍历顺序不等于飞行路线，静态 AABB 只能近似排除障碍；
@@ -196,7 +182,7 @@ MAGICIAN 的实际 SSH 地址和仓库路径尚未提供，以下命令交互输
 ```bash
 read -r -p 'MAGICIAN SSH 地址（如 user@host）: ' MAGICIAN_HOST
 read -r -p 'MAGICIAN 视点库绝对根目录（不含 scene_id）: ' MAGICIAN_VIEWBANK_ROOT
-rsync -av --progress data/viewbank/town10_aod_probe_v2/ "${MAGICIAN_HOST}:${MAGICIAN_VIEWBANK_ROOT}/town10_aod_probe_v2/"
+rsync -av --progress data/viewbank/town10_aod_probe_v3/ "${MAGICIAN_HOST}:${MAGICIAN_VIEWBANK_ROOT}/town10_aod_probe_v3/"
 ```
 
 目标根目录需事先存在。接收端在带本实现分支的 CARLA 工具仓库、安装本工具离线依赖后，对实际接收路径执行：
@@ -218,7 +204,8 @@ Random/Greedy/Beam Search 公平对照、Oracle 覆盖评测或多场景泛化�
 
 ## 首次实拍修复后的额外质量门
 
-天气名称现在映射到版本 2 的项目固定配置，不把 CARLA 原生预设名称当成已生效的证据。
+以下 API 预设仅供天气可控的构建；当前 0.10.0 默认配置使用第 2a 节的固定日间模式。
+API 天气名称映射到版本 2 的项目固定配置，不把 CARLA 原生预设名称当成已生效的证据。
 ClearNoon/CloudyNoon 的太阳高度为 75°，ClearSunset 为 15°；风/降水为零，散射强度 1、
 Mie 0.03、Rayleigh 0.0331；云量为 5/60。实际天气必须与请求回读匹配，否则在生成相机前失败。
 若服务器天气接口未生效或不支持这些值，不应跳过校验；先排查服务器构建和天气支持。
@@ -227,7 +214,7 @@ Mie 0.03、Rayleigh 0.0331；云量为 5/60。实际天气必须与请求回读�
 `quality.rgb_mean_min=5.0`、`rgb_mean_max=250.0` 检查 RGB 三通道全图平均值（0–255）。
 稳定但全黑/全白的图像不再成为成功节点。历史 v1 配置缺少这两个键时使用同样的保守默认值，
 解析时不插入键，保留旧配置哈希；新配置显式记录阈值。这只是退化图像质量门，不能替代人工判断曝光。
-若 v2 天气读回正常但 RGB 仍过暗，整批标定手动曝光并另建新目录，不降低阈值掩盖黑帧。
+若固定日间模式下 RGB 仍过暗，整批标定手动曝光并另建新目录，不降低阈值掩盖黑帧。
 
 短暂的传感器 frame/timestamp 错配会丢弃该 bundle、重建稳定窗口并继续等待，
 仍受原超时和最大 tick 数约束，不放宽同帧/时间戳阈值。拒绝次数和最后一组原始帧号/时间戳写入

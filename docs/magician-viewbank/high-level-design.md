@@ -264,9 +264,14 @@ AABB 不是飞行安全证明；单区域接口批次也不能支持 MAGICIAN �
 因此不与旧环境混合续采。schema 仍为 v1，新增质量参数对旧配置读取兼容。
 
 
-### 天气能力预检补充（首次 v2 服务器反馈后）
+### CARLA 0.10.0 固定日间适配（2026-09-26 更正）
 
-capture 在修改世界前调用 `is_weather_enabled()`，缺失天气 Actor 或缺失该 API 时拒绝采集，
-提前保存客户端/服务器版本与 preflight。`doctor --config ...` 复用同一只读预检入口，不推进世界。
-天气 setter 为异步 RPC；仅对能力存在的世界进行有界回读等待，保存 requested/actual/ticks，阈值保持不变。
-这项工程检查不代替服务器地图天气资源修复和 RGB 实拍验收，见 server-operations.md 的 2a 节。
+官方 0.10.0 发布说明将可修改天气列为未迁移能力，天气固定为日间。
+此前“缺少天气 Actor 就必须修复地图”的推断不适用于所有 0.10.0 发布版。
+默认配置采用显式 MapDefaultDaylight：只接受 0.10.0/Town10HD_Opt/天气 API 不可用这一已知组合；
+保留原有 API 预设的严格天气能力和回读校验，不进行自动 fallback。
+固定日间不调用天气 setter，实际数值标记不可观测/null；原始占位读数仅归入 diagnostic。
+`doctor` 与 capture 共用预检；check 核对模式、版本、地图及无伪造数值的元数据。
+新 scene_id 为 v3、配置哈希变化，使用新目录；RGB、深度、几何、同帧和位姿质量门继续生效。
+同一地图构建的固定照明是发布版运行假设，仍需人工图像验收，不能声称已测量太阳高度或风速。
+详见 [服务器操作](server-operations.md)。

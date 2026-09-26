@@ -66,8 +66,13 @@ def parse_config(raw):
     for section, key in (("client", "host"), ("scene", "map")):
         if not isinstance(cfg[section][key], str) or not cfg[section][key].strip():
             raise ValueError(f"{section}.{key}: nonempty string required")
-    if cfg["scene"]["weather"] not in ("ClearNoon", "ClearSunset", "CloudyNoon"):
-        raise ValueError("weather must be ClearNoon, ClearSunset or CloudyNoon")
+    if cfg["scene"]["weather"] not in (
+        "ClearNoon",
+        "ClearSunset",
+        "CloudyNoon",
+        "MapDefaultDaylight",
+    ):
+        raise ValueError("weather must be ClearNoon, ClearSunset, CloudyNoon or MapDefaultDaylight")
     for section, key, low, high, integer in (
         ("client", "port", 1, 65535, True),
         ("client", "timeout_seconds", 0.01, 3600, False),

@@ -157,3 +157,5 @@ CARLA 0.10.0 发行包继续独立放在服务器现有目录：
 配置验证、即时进度输出、只读连接冒烟测试，以及 Hover/Vertical Follow 的单场景路径
 代价 Pilot 已完成本机离线测试。真实地图候选、车辆路径跟随、传感器吞吐和阈值仍需在
 服务器的 CARLA 0.10.0 环境完成首次验收；Reactive、前瞻规划和 Oracle 尚未实现。
+
+CARLA 0.10.0 视点库默认使用显式地图固定日间模式（MapDefaultDaylight/v3）；天气 API 不可用不等于安装损坏。操作与限制见 [视点库服务器说明](docs/magician-viewbank/server-operations.md)。

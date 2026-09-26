@@ -477,5 +477,78 @@ def test_doctor_cli_outputs_json_without_output_directory(monkeypatch, capsys):
     world = CaptureWorld()
     world.is_weather_enabled = lambda: False
     monkeypatch.setitem(__import__("sys").modules, "carla", simulator(world))
-    assert viewbank.main(["doctor", "--config", "cfg/viewbank/town10_aod_smoke.yaml"]) == 3
+    assert viewbank.main(["doctor", "--config", "cfg/viewbank/town10_aod_smoke.yaml"]) == 0
     assert json.loads(capsys.readouterr().out)["weather_enabled"] is False
+
+
+@pytest.mark.parametrize("black", [False, True])
+def test_fixed_daylight_010_capture_never_sets_weather_and_keeps_rgb_gate(tmp_path, black):
+    from src.carla_experiments.viewbank.artifacts import read_json
+    from src.carla_experiments.viewbank.validate import check_dataset
+
+    world = CaptureWorld()
+    world.is_weather_enabled = lambda: False
+    world.weather = NS(rayleigh_scattering_scale=0.0331)
+
+    def forbidden(value):
+        pytest.fail("fixed map daylight must never set or restore unsupported weather")
+
+    world.set_weather = forbidden
+    if black:
+        spawn = world.spawn_actor
+
+        def black_spawn(bp, pose):
+            sensor = spawn(bp, pose)
+            if bp.id == "sensor.camera.rgb":
+                listen = sensor.listen
+
+                def wrapped(callback):
+                    def dark(image):
+                        image.raw_data = bytes(len(image.raw_data))
+                        callback(image)
+
+                    listen(dark)
+
+                sensor.listen = wrapped
+            return sensor
+
+        world.spawn_actor = black_spawn
+    cfg = small_config()
+    cfg["scene"]["weather"] = "MapDefaultDaylight"
+    root = tmp_path / "fixed-daylight"
+    result = api().capture(simulator(world), cfg, root)
+    assert result["passed"] is (not black)
+    assert not result["captured"] if black else result["captured"] == 2
+    scene = read_json(root / "scene.json")
+    assert scene["actual_weather"] is None
+    assert scene["weather_request"] is None
+    assert scene["environment"]["weather"] is None
+    assert scene["environment"]["lighting_mode"] == "map_default_daylight"
+    assert scene["preflight"]["diagnostic_weather_api_return"] == {
+        "rayleigh_scattering_scale": 0.0331
+    }
+    assert check_dataset(root)["passed"] is (not black)
+    if not black:
+        assert api().capture(simulator(world), cfg, root, resume=True)["passed"]
+        scene = read_json(root / "scene.json")
+        scene["actual_weather"] = {"sun_altitude_angle": 75}
+        from src.carla_experiments.viewbank.artifacts import write_checksums, write_json
+
+        write_json(root / "scene.json", scene)
+        write_checksums(root)
+        assert not check_dataset(root)["passed"]
+
+
+@pytest.mark.parametrize(
+    "enabled,version,accepted",
+    [(False, "0.10.0", True), (True, "0.10.0", False), (False, "0.10.1", False)],
+)
+def test_fixed_daylight_requires_explicit_supported_environment(enabled, version, accepted):
+    world = CaptureWorld()
+    world.is_weather_enabled = lambda: enabled
+    cfg = small_config()
+    cfg["scene"]["weather"] = "MapDefaultDaylight"
+    carla = simulator(world)
+    client = carla.Client(None, None)
+    client.get_client_version = client.get_server_version = lambda: version
+    assert api().doctor(carla, cfg)["passed"] is accepted

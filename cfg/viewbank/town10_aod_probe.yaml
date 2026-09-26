@@ -7,7 +7,7 @@
 # ROI bounds are relative to origin; edge_step_m is recorded for future mesh
 # checks. Version 1 uses exact segment-AABB intersection, not sampled endpoints.
 schema_version: 1
-scene_id: town10_aod_probe_v2
+scene_id: town10_aod_probe_v3
 client:
   host: localhost
   port: 2000
@@ -16,7 +16,9 @@ scene:
   map: Carla/Maps/Town10HD_Opt
   seed: 7
   fixed_delta_seconds: 0.05
-  weather: ClearNoon
+  # CARLA 0.10.0 ships map-authored daylight; its weather API is unavailable.
+  # This is not a measured ClearNoon/sun angle. Keep the same server/map build.
+  weather: MapDefaultDaylight
   roi_min_m:
   - -30
   - -30

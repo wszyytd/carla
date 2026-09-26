@@ -105,7 +105,7 @@ def weather_profile(name):
     }
 
 
-def environment_preflight(world, cfg):
+def environment_preflight(world, cfg, versions):
     """Read-only capability check; null means the client lacks the required 0.10 API."""
     query = getattr(world, "is_weather_enabled", None)
     enabled = bool(query()) if callable(query) else None
@@ -113,11 +113,20 @@ def environment_preflight(world, cfg):
     errors = []
     if map_name.split("/")[-1] != cfg["scene"]["map"].split("/")[-1]:
         errors.append(f"map mismatch: {map_name}")
-    if enabled is False:
+    fixed_daylight = cfg["scene"]["weather"] == "MapDefaultDaylight"
+    if fixed_daylight:
+        if list(versions) != ["0.10.0", "0.10.0"] or enabled is not False:
+            errors.append(
+                "MapDefaultDaylight requires CARLA client/server 0.10.0 and "
+                "is_weather_enabled()=False; select an API preset for controllable weather."
+            )
+        if map_name.split("/")[-1] != "Town10HD_Opt":
+            errors.append("MapDefaultDaylight is currently qualified only for Town10HD_Opt")
+    elif enabled is False:
         errors.append(
             "weather unavailable: is_weather_enabled()=False; this map has no CARLA weather "
-            "actor. Check server log for 'Missing weather class!' / 'weather is disabled'; "
-            "repair map/GameMode weather assets before capture (see server-operations.md)."
+            "actor. CARLA 0.10.0 ships fixed daylight: use an explicit MapDefaultDaylight "
+            "configuration and new output; this alone does not imply broken map assets."
         )
     elif enabled is None:
         errors.append(
@@ -132,7 +141,11 @@ def environment_preflight(world, cfg):
         "read_only": True,
         "map": map_name,
         "weather_enabled": enabled,
-        "actual_weather": _weather(world),
+        "actual_weather": None if fixed_daylight else _weather(world),
+        "diagnostic_weather_api_return": _weather(world) if fixed_daylight else None,
+        "lighting_mode": "map_default_daylight" if fixed_daylight else "weather_api",
+        "lighting_parameters_observable": not fixed_daylight,
+        "lighting_review": "pending",
         "passed": not errors,
         "errors": errors,
     }
@@ -142,7 +155,7 @@ def doctor(carla, cfg):
     """Inspect the running server without setting weather, ticking or spawning actors."""
     cfg = parse_config(cfg)
     client, versions = connect(carla, SimpleNamespace(**cfg["client"]))
-    result = environment_preflight(client.get_world(), cfg)
+    result = environment_preflight(client.get_world(), cfg, versions)
     result.update(
         carla_client_version=versions[0],
         carla_server_version=versions[1],
@@ -288,21 +301,30 @@ def _capture(carla, cfg, root, resume, report):
         client, versions = connect(carla, SimpleNamespace(**cfg["client"]))
         world = client.get_world()
         scene.update(carla_client_version=versions[0], carla_server_version=versions[1])
-        scene["preflight"] = environment_preflight(world, cfg)
+        scene["preflight"] = environment_preflight(world, cfg, versions)
         write_json(root / "scene.json", scene)
         if not scene["preflight"]["passed"]:
             raise RuntimeError("; ".join(scene["preflight"]["errors"]))
         map_name = scene["preflight"]["map"]
         random.seed(cfg["scene"]["seed"])
         np.random.seed(cfg["scene"]["seed"])
-        settings, weather = world.get_settings(), world.get_weather()
+        fixed_daylight = cfg["scene"]["weather"] == "MapDefaultDaylight"
+        settings = world.get_settings()
+        weather = None if fixed_daylight else world.get_weather()
         apply_camera_capture_settings(world, cfg["scene"]["fixed_delta_seconds"])
-        requested_weather = weather_profile(cfg["scene"]["weather"])
-        scene["weather_request"] = requested_weather
-        scene["weather_application"] = {}
-        scene["actual_weather"] = apply_weather_verified(
-            world, requested_weather, cfg, scene["weather_application"]
-        )
+        if fixed_daylight:
+            scene.update(weather_request=None, actual_weather=None, weather_application=None)
+            log(
+                "MapDefaultDaylight: using CARLA 0.10.0 map lighting; numerical weather "
+                "unobservable; RGB and manual lighting review required"
+            )
+        else:
+            requested_weather = weather_profile(cfg["scene"]["weather"])
+            scene["weather_request"] = requested_weather
+            scene["weather_application"] = {}
+            scene["actual_weather"] = apply_weather_verified(
+                world, requested_weather, cfg, scene["weather_application"]
+            )
         lights = [
             (light, light.is_frozen(), light.get_state())
             for light in world.get_actors().filter("traffic.traffic_light*")
@@ -321,13 +343,22 @@ def _capture(carla, cfg, root, resume, report):
             "versions": versions,
             "weather_profile_version": 2,
             "map": map_name,
-            "weather": _weather(world),
+            "weather": None if fixed_daylight else _weather(world),
             "geometry_sha256": config_hash(boxes),
             "geometry_counts": counts,
             "camera_attributes": expected_attributes,
             "traffic_lights": "frozen_red",
             "dynamic_actors": 0,
         }
+        if fixed_daylight:
+            environment.update(
+                lighting_mode="map_default_daylight",
+                lighting_parameters_observable=False,
+                weather_enabled=False,
+                lighting_basis="https://carla.org/2024/12/19/release-0.10.0/",
+                lighting_limitation="map-authored daylight; no numerical weather proof; "
+                "same server build and manual visual review required",
+            )
         if scene["environment"] is not None and scene["environment"] != environment:
             raise RuntimeError("environment mismatch on resume; use a new scene directory")
         scene["environment"] = environment
@@ -375,7 +406,10 @@ def _capture(carla, cfg, root, resume, report):
             log(f"[{i + 1}/{len(nodes)}] {node['node_id']}")
             try:
                 _assert_empty_world(world)
-                if _weather(world) != environment["weather"]:
+                if fixed_daylight:
+                    if world.is_weather_enabled():
+                        raise RuntimeError("weather capability changed during capture")
+                elif _weather(world) != environment["weather"]:
                     raise RuntimeError("weather changed during capture")
                 desired = transform(carla, node["requested_transform"])
                 for sensor in sensors.values():

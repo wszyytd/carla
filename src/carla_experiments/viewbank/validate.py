@@ -229,6 +229,19 @@ def inspect_dataset(root, require_complete=True):
         )
         _require(scene["depth_semantics"] == DEPTH_SEMANTICS, "scene depth semantics mismatch")
         _require(bool(scene["environment"]), "missing CARLA environment provenance")
+        if cfg["scene"]["weather"] == "MapDefaultDaylight":
+            env = scene["environment"]
+            _require(
+                env.get("lighting_mode") == "map_default_daylight"
+                and env.get("lighting_parameters_observable") is False
+                and env.get("weather_enabled") is False
+                and env["versions"] == ["0.10.0", "0.10.0"]
+                and env["map"].split("/")[-1] == "Town10HD_Opt"
+                and env["weather"] is None
+                and scene["actual_weather"] is None
+                and scene["weather_request"] is None,
+                "fixed daylight provenance inconsistent; numerical weather is unavailable",
+            )
         nodes, edges = read_jsonl(root / "nodes.jsonl"), read_jsonl(root / "edges.jsonl")
         expected_nodes, expected_edges = build_grid(cfg)
         geometry = read_json(root / "region_geometry.json")
